@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     payload = bytes(int(b, 16) for b in args.payload.split())
-    bus = can.interface.Bus(channel=args.iface, bustype="socketcan")
+    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
     msg = can.Message(arbitration_id=args.id, data=payload, is_extended_id=False)
 
     print(f"[INFO] Iniciando DoS em {args.iface} | "

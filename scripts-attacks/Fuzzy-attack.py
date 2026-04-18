@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     rng = random.Random(args.seed)
-    bus = can.interface.Bus(channel=args.iface, bustype="socketcan")
+    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
 
     print(f"[INFO] Iniciando Fuzzing em {args.iface} | "
           f"ID∈[0x{args.id_min:03X}, 0x{args.id_max:03X}] | "

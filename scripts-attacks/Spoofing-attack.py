@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    bus = can.interface.Bus(channel=args.iface, bustype="socketcan")
+    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
     interval_s = args.rate / 1000.0
 
     print(f"[INFO] Spoofing alvo={args.target} | valor={args.value} | "

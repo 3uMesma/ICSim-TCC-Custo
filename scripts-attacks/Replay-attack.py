@@ -12,7 +12,7 @@ import can
 
 
 def cmd_record(args: argparse.Namespace) -> None:
-    bus = can.interface.Bus(channel=args.iface, bustype="socketcan")
+    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
     print(f"[INFO] Gravando {args.record_time}s de {args.iface} -> {args.out}")
     n = 0
     t0 = time.perf_counter()
@@ -44,7 +44,7 @@ def cmd_replay(args: argparse.Namespace) -> None:
             if not line or not line.startswith("("):
                 continue
             try:
-                ts_str, frame = line.split(maxsplit=2)
+                ts_str, _iface, frame = line.split(maxsplit=2)
                 ts = float(ts_str.strip("()"))
                 arb, data_hex = frame.split("#", 1)
                 arb_id = int(arb, 16)
@@ -56,7 +56,7 @@ def cmd_replay(args: argparse.Namespace) -> None:
     if not frames:
         sys.exit("[ERRO] Nenhum frame válido encontrado no log.")
 
-    bus = can.interface.Bus(channel=args.iface, bustype="socketcan")
+    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
     print(f"[INFO] Replay de {len(frames)} frames | "
           f"speedup={args.speedup}x | loops={args.loops}")
 
