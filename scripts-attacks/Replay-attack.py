@@ -5,6 +5,7 @@ retransmite posteriormente (fase de replay)
 - Etapa Sniffing: grava por --record-time segundos um log no formato candump
 - Etapa Replay: reproduz o log preservando ou acelerando o speedup
 """
+
 import argparse
 import sys
 import time
@@ -25,8 +26,10 @@ def cmd_record(args: argparse.Namespace) -> None:
                     continue
                 # Formato candump: (timestamp) iface ID#DATA
                 hexd = msg.data.hex().upper()
-                f.write(f"({msg.timestamp:.6f}) {args.iface} "
-                        f"{msg.arbitration_id:03X}#{hexd}\n")
+                f.write(
+                    f"({msg.timestamp:.6f}) {args.iface} "
+                    f"{msg.arbitration_id:03X}#{hexd}\n"
+                )
                 n += 1
         except KeyboardInterrupt:
             print("\n[INFO] Interrompido pelo usuário.")
@@ -57,8 +60,10 @@ def cmd_replay(args: argparse.Namespace) -> None:
         sys.exit("[ERRO] Nenhum frame válido encontrado no log.")
 
     bus = can.interface.Bus(channel=args.iface, interface="socketcan")
-    print(f"[INFO] Replay de {len(frames)} frames | "
-          f"speedup={args.speedup}x | loops={args.loops}")
+    print(
+        f"[INFO] Replay de {len(frames)} frames | "
+        f"speedup={args.speedup}x | loops={args.loops}"
+    )
 
     sent = 0
     t_start = time.perf_counter()
@@ -72,8 +77,9 @@ def cmd_replay(args: argparse.Namespace) -> None:
                 delay = target - time.perf_counter()
                 if delay > 0:
                     time.sleep(delay)
-                msg = can.Message(arbitration_id=arb_id, data=data,
-                                  is_extended_id=False)
+                msg = can.Message(
+                    arbitration_id=arb_id, data=data, is_extended_id=False
+                )
                 try:
                     bus.send(msg)
                     sent += 1
@@ -84,9 +90,11 @@ def cmd_replay(args: argparse.Namespace) -> None:
     finally:
         elapsed = time.perf_counter() - t_start
         bus.shutdown()
-        print(f"[RESULTADO] Frames re-injetados: {sent} | "
-              f"Tempo: {elapsed:.3f}s | "
-              f"Taxa média: {sent/elapsed:.0f} fps")
+        print(
+            f"[RESULTADO] Frames re-injetados: {sent} | "
+            f"Tempo: {elapsed:.3f}s | "
+            f"Taxa média: {sent/elapsed:.0f} fps"
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,10 +109,15 @@ def parse_args() -> argparse.Namespace:
     rp = sub.add_parser("replay", help="Re-injetar tráfego capturado")
     rp.add_argument("--iface", default="vcan0")
     rp.add_argument("--in", dest="input", required=True)
-    rp.add_argument("--speedup", type=float, default=1.0,
-                    help="Fator de aceleração temporal (default: 1.0)")
-    rp.add_argument("--loops", type=int, default=1,
-                    help="Quantas vezes repetir o log (default: 1)")
+    rp.add_argument(
+        "--speedup",
+        type=float,
+        default=1.0,
+        help="Fator de aceleração temporal (default: 1.0)",
+    )
+    rp.add_argument(
+        "--loops", type=int, default=1, help="Quantas vezes repetir o log (default: 1)"
+    )
     return p.parse_args()
 
 

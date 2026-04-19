@@ -15,3 +15,7 @@ lib.o:
 
 clean:
 	rm -rf icsim controls icsim.o controls.o
+
+format:
+    clang-format -i *.c *.h
+	black scripts-attacks/

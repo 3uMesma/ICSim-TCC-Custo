@@ -47,11 +47,11 @@
 #define CL_DATA sizeof(".AA")
 #define CL_BINDATA sizeof(".10101010")
 
- /* CAN FD ASCII hex short representation with DATA_SEPERATORs */
-#define CL_CFSZ (2*CL_ID + 64*CL_DATA)
+/* CAN FD ASCII hex short representation with DATA_SEPERATORs */
+#define CL_CFSZ (2 * CL_ID + 64 * CL_DATA)
 
 /* CAN FD ASCII hex long representation with binary output */
-#define CL_LONGCFSZ (2*CL_ID + sizeof("   [255]  ") + (64*CL_BINDATA))
+#define CL_LONGCFSZ (2 * CL_ID + sizeof("   [255]  ") + (64 * CL_BINDATA))
 
 /* CAN DLC to real data length conversion helpers especially for CAN FD */
 
@@ -142,8 +142,9 @@ int parse_canframe(char *cs, struct canfd_frame *cf);
  * - CAN FD frames do not have a RTR bit
  */
 
-void fprint_canframe(FILE *stream , struct canfd_frame *cf, char *eol, int sep, int maxdlen);
-void sprint_canframe(char *buf , struct canfd_frame *cf, int sep, int maxdlen);
+void fprint_canframe(FILE *stream, struct canfd_frame *cf, char *eol, int sep,
+                     int maxdlen);
+void sprint_canframe(char *buf, struct canfd_frame *cf, int sep, int maxdlen);
 /*
  * Creates a CAN frame hexadecimal output in compact format.
  * The CAN data[] is separated by '.' when sep != 0.
@@ -167,16 +168,18 @@ void sprint_canframe(char *buf , struct canfd_frame *cf, int sep, int maxdlen);
  *
  */
 
-#define CANLIB_VIEW_ASCII	0x1
-#define CANLIB_VIEW_BINARY	0x2
-#define CANLIB_VIEW_SWAP	0x4
-#define CANLIB_VIEW_ERROR	0x8
-#define CANLIB_VIEW_INDENT_SFF	0x10
+#define CANLIB_VIEW_ASCII 0x1
+#define CANLIB_VIEW_BINARY 0x2
+#define CANLIB_VIEW_SWAP 0x4
+#define CANLIB_VIEW_ERROR 0x8
+#define CANLIB_VIEW_INDENT_SFF 0x10
 
 #define SWAP_DELIMITER '`'
 
-void fprint_long_canframe(FILE *stream , struct canfd_frame *cf, char *eol, int view, int maxdlen);
-void sprint_long_canframe(char *buf , struct canfd_frame *cf, int view, int maxdlen);
+void fprint_long_canframe(FILE *stream, struct canfd_frame *cf, char *eol,
+                          int view, int maxdlen);
+void sprint_long_canframe(char *buf, struct canfd_frame *cf, int view,
+                          int maxdlen);
 /*
  * Creates a CAN frame hexadecimal output in user readable format.
  *
@@ -204,7 +207,7 @@ void sprint_long_canframe(char *buf , struct canfd_frame *cf, int view, int maxd
  */
 
 void snprintf_can_error_frame(char *buf, size_t len, struct canfd_frame *cf,
-			      char *sep);
+                              char *sep);
 /*
  * Creates a CAN error frame output in user readable format.
  */

