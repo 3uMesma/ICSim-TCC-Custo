@@ -96,8 +96,24 @@ run_perf_on_attack() {
 
 # SNIFFING PARA REPLAY
 ensure_replay_log() {
-    if [[ ! -f "$REPLAY_LOG" ]]; then
-        log "Capturando tráfego legítimo para replay (${REPLAY_RECORD_TIME}s)..."
+    if [[ -f "$REPLAY_LOG" ]]; then
+        log "Arquivo de replay encontrado: $REPLAY_LOG ($(wc -l < "$REPLAY_LOG") frames)"
+        
+        read -rp "[?] Deseja usar o arquivo existente? [S/n]: " answer
+        answer="${answer,,}" # lowercase
+        
+        if [[ "$answer" == "n" || "$answer" == "nao" || "$answer" == "não" ]]; then
+            log "Recapturando tráfego legítimo para replay (${REPLAY_RECORD_TIME}s)..."
+            python3 "${ATTACK_DIR}/Replay-attack.py" record \
+                --iface "$IFACE" \
+                --out "$REPLAY_LOG" \
+                --record-time "$REPLAY_RECORD_TIME"
+            log "Captura concluída: $(wc -l < "$REPLAY_LOG") frames em $REPLAY_LOG"
+        else
+            log "Usando arquivo existente: $REPLAY_LOG"
+        fi
+    else
+        log "Nenhum arquivo de replay encontrado. Capturando (${REPLAY_RECORD_TIME}s)..."
         python3 "${ATTACK_DIR}/Replay-attack.py" record \
             --iface "$IFACE" \
             --out "$REPLAY_LOG" \
@@ -132,9 +148,35 @@ collect_sysinfo() {
     log "Informações do sistema salvas em $info"
 }
 
+check_icsim_running() {
+    local missing=0
+
+    if ! pgrep -x "icsim" > /dev/null 2>&1; then
+        log "  [ERRO] icsim não está rodando. Inicie com: ./icsim $IFACE"
+        missing=1
+    else
+        log "  [OK] icsim está rodando (PID: $(pgrep -x icsim))"
+    fi
+
+    if ! pgrep -x "controls" > /dev/null 2>&1; then
+        log "  [ERRO] controls não está rodando. Inicie com: ./controls $IFACE"
+        missing=1
+    else
+        log "  [OK] controls está rodando (PID: $(pgrep -x controls))"
+    fi
+
+    if [[ "$missing" -eq 1 ]]; then
+        log "  Abortando experimento. Inicie os processos e tente novamente."
+        exit 1
+    fi
+}
+
 main() {
     mkdir -p "${RESULTS_DIR}/raw"
     : > "${RESULTS_DIR}/experiment_log.txt"
+
+    log "Verificando pré-requisitos..."
+    check_icsim_running 
 
     log "============================================================"
     log "  ETAPA 1 — TESTE DE ESTRESSE (BASELINE)"
