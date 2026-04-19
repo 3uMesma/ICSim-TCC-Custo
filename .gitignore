@@ -1,3 +1,4 @@
 *.o
 /results-attacks
 *.log
+scripts-attacks/scripts-results/results
