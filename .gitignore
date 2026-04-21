@@ -2,3 +2,4 @@
 /results-attacks
 *.log
 scripts-attacks/scripts-results/results
+scripts-attacks/scripts-results/results-comparison-dos
