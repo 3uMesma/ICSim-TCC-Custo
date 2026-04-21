@@ -7,10 +7,10 @@ IFACE="vcan0"
 DURATION=30 # segundos/ataque
 REPS=20
 COOLDOWN=5
-ATTACKS="dos fuzzing replay spoofing"
+ATTACKS="dos-python dos-cangen"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ATTACK_DIR="$(dirname "$SCRIPT_DIR")"
-RESULTS_DIR="${SCRIPT_DIR}/results"
+RESULTS_DIR="${SCRIPT_DIR}/results-comparison-dos"
 REPLAY_LOG="${SCRIPT_DIR}/captura_replay.log"
 REPLAY_RECORD_TIME=20
 
@@ -25,7 +25,6 @@ usage() {
     echo "  -d   Duração de cada rodada em segundos "
     echo "  -n   Número de repetições"
     echo "  -a   Ataques separados por vírgula"
-    echo "       Opções: dos, fuzzing, replay, spoofing"
     echo "  -c   Cooldown entre rodadas em segundos"
     exit 0
 }
@@ -41,6 +40,21 @@ while getopts "i:d:n:a:c:h" opt; do
     esac
 done
 
+# alias de dos-python para dos
+normalize_attakcs() {
+    local out=()
+    local a
+    for a in $ATTACKS; do
+        case "$a" in
+            dos)    out+=("dos-python") ;;
+            *)      out+=("$a") ;;
+        esac
+    done
+    ATTACKS="${out[*]}"            
+}
+normalize_attakcs
+
+
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
     echo "$msg"
@@ -51,11 +65,28 @@ run_perf_on_attack() {
     local attack="$1"
     local run_num="$2"
     local perf_csv="${RESULTS_DIR}/raw/${attack}_run$(printf '%02d' "$run_num").csv"
+
+    # dos-cangen: shell script gerencia o próprio perf internamente.
+    if [[ "$attack" == "dos-cangen" ]]; then
+        local cangen_script="${ATTACK_DIR}/dos-cangen-attack.sh"
+        if [[ ! -f "$cangen_script" ]]; then
+            log "  [ERRO] Script cangen não encontrado: $cangen_script"
+            return 1
+        fi
+        log "  CMD: PERF_CSV=... PERF_EVENTS=... RUN_NUM=$run_num bash $cangen_script ..."
+        PERF_CSV="$perf_csv" \
+        PERF_EVENTS="$PERF_EVENTS" \
+        RUN_NUM="$run_num" \
+        ATTACK_LABEL="dos-cangen" \
+            bash "$cangen_script" -i "$IFACE" -d "$DURATION" -g 0 -m fixed || true
+        return 0
+    fi
+
     local attack_cmd
 
     # Monta o comando do ataque
     case "$attack" in
-        dos)
+        dos-python)
             attack_cmd="python3 ${ATTACK_DIR}/DoS-attack.py --iface $IFACE --duration $DURATION --rate 0"
             ;;
         fuzzing)
