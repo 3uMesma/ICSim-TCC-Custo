@@ -3,3 +3,5 @@
 *.log
 scripts-attacks/scripts-results/results
 scripts-attacks/scripts-results/results-comparison-dos
+scenario2-firewall/results
+scenario3-secoc/results
