@@ -61,8 +61,8 @@ DUMP_PID=$!
 
 # Disparo do ataque com timeout duro.
 START=$(date +%s.%N)
-if [[ -n "${PERF_CSV:-}" && -n "${PERF_EVENTS:-}" ]]; then
-    PERF_RAW="${PERF_CSV}.raw"
+if [[ ( -n "${PERF_CSV:-}" || -n "${PERF_RAW:-}" ) && -n "${PERF_EVENTS:-}" ]]; then
+    PERF_RAW="${PERF_RAW:-${PERF_CSV}.raw}"
     LC_NUMERIC=C perf stat -x ';' -e "$PERF_EVENTS" \
         -o "$PERF_RAW" \
         -- timeout --preserve-status "${DURATION}s" \

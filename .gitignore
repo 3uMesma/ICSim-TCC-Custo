@@ -5,3 +5,5 @@ scripts-attacks/scripts-results/results
 scripts-attacks/scripts-results/results-comparison-dos
 scenario2-firewall/results
 scenario3-secoc/results
+master-experiment/analyze_all.py
+master-experiment/master_results

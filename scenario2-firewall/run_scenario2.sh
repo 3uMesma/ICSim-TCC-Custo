@@ -7,7 +7,7 @@
 # Uso:
 #   sudo ./run_scenario2.sh <attack> [duration_s] [extra_gateway_flags...]
 #
-# Ataques suportados: dos | fuzzing | replay | spoofing | cangen | idle
+# Ataques suportados: dos-py | fuzzing | replay | spoofing | dos-cangen | idle
 #   - "idle" roda sem ataque (baseline passivo da carga do gateway)
 #   - "cangen" usa a ferramenta nativa do can-utils
 # 
@@ -19,7 +19,7 @@ shift $(( $# < 2 ? $# : 2 ))
 EXTRA_GATEWAY_FLAGS=("$@")
 
 if [[ -z "$ATTACK" ]]; then
-    echo "uso: $0 <dos|fuzzing|replay|spoofing|cangen|idle> [duration_s] [flags]"
+    echo "uso: $0 <dos-py|fuzzing|replay|spoofing|dos-cangen|idle> [duration_s] [flags]"
     exit 2
 fi
 
@@ -32,6 +32,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ATAQUES="$HERE/../scripts-attacks"
 RESULTS="$HERE/results/$(date +%Y%m%d-%H%M%S)-${ATTACK}"
 mkdir -p "$RESULTS"
+
+# Helper compartilhado — define o formato canônico do CSV de saída.
+. "$HERE/../lib/perf_csv.sh"
+PERF_DATA_CSV="${PERF_DATA_CSV:-$HERE/results/perf_data.csv}"
+RUN_INDEX="${RUN_INDEX:-1}"
 
 echo "[info] resultados -> $RESULTS"
 echo "[info] ataque=$ATTACK duração=${DURATION}s"
@@ -53,20 +58,21 @@ fi
 echo "[info] gateway rodando com PID $GW_PID"
 
 # perf stat anexado ao gateway
-PERF_CSV="$RESULTS/perf.csv"
-perf stat -p "$GW_PID" \
-    -e cycles,instructions,cache-misses,cache-references,context-switches,task-clock \
-    -x ',' -o "$PERF_CSV" \
+PERF_RAW="$RESULTS/perf_gateway.raw"
+PERF_EVENTS="${PERF_EVENTS:-$PERF_EVENTS_DEFAULT}"
+LC_NUMERIC=C perf stat -p "$GW_PID" \
+    -e "$PERF_EVENTS" \
+    -x ';' -o "$PERF_RAW" \
     -- sleep "$DURATION" &
 PERF_PID=$!
 
-# Disparar ataque em paralelo
+# Disparar ataque
 case "$ATTACK" in
     idle)
         echo "[info] baseline passivo; aguardando $DURATION s"
         sleep "$DURATION"
         ;;
-    dos)
+    dos-py)
         python3 "$ATAQUES/DoS-attack.py" --iface vcan0 --duration "$DURATION" --rate 0 \
             >"$RESULTS/attack.log" 2>&1
         ;;
@@ -114,7 +120,7 @@ case "$ATTACK" in
             --value 220 --duration "$DURATION" --rate 1 \
             >"$RESULTS/attack.log" 2>&1
         ;;
-    cangen)
+    dos-cangen)
         cangen vcan0 -I 000 -L 8 -D FFFFFFFFFFFFFFFF -g 0 &
         CANGEN_PID=$!
         sleep "$DURATION"
@@ -132,10 +138,9 @@ wait "$PERF_PID" 2>/dev/null || true
 kill -INT "$GW_PID" 2>/dev/null || true
 wait "$GW_PID"     2>/dev/null || true
 
-echo "[ok] experiment concluído."
-echo
-echo "======= perf (resumo) ======="
-cat "$PERF_CSV" | sed '/^#/d' | column -t -s ','
+perf_csv_append_raw "$PERF_RAW" "$PERF_DATA_CSV" \
+    cen2 gateway "$ATTACK" "$RUN_INDEX"
+echo "[ok] experiment concluído (rep=$RUN_INDEX → $PERF_DATA_CSV)."
 echo
 echo "======= gateway (resumo) ======="
 tail -n 30 "$GW_LOG"

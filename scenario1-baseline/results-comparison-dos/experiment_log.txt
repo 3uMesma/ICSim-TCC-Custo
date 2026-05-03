@@ -1,0 +1,77 @@
+[2026-05-02 21:46:38] Verificando pré-requisitos...
+[2026-05-02 21:46:38]   [OK] icsim está rodando (PID: 38192)
+[2026-05-02 21:46:38]   [OK] controls está rodando (PID: 38200)
+[2026-05-02 21:46:38] ============================================================
+[2026-05-02 21:46:38]   ETAPA 1 — TESTE DE ESTRESSE (BASELINE)
+[2026-05-02 21:46:38]   Ataques : dos-py dos-cangen fuzzing replay spoofing
+[2026-05-02 21:46:38]   Repetições: 5 × 10s cada
+[2026-05-02 21:46:38]   CSV alvo : /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/master-experiment/master_results/20260502-214636/perf_data.csv
+[2026-05-02 21:46:38] ============================================================
+[2026-05-02 21:46:38] Informações do sistema salvas em /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/results-comparison-dos/sysinfo.txt
+[2026-05-02 21:46:38] Arquivo de replay encontrado: /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/captura_replay.log (342218 frames)
+[2026-05-02 21:46:47] Usando arquivo existente: /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/captura_replay.log
+[2026-05-02 21:46:47] 
+[2026-05-02 21:46:47] --- Ataque: dos-py (5 repetições) ---
+[2026-05-02 21:46:47] [1/25] dos-py — rodada 1/5
+[2026-05-02 21:46:47]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/DoS-attack.py --iface vcan0 --duration 10 --rate 0
+[2026-05-02 21:47:02] [2/25] dos-py — rodada 2/5
+[2026-05-02 21:47:02]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/DoS-attack.py --iface vcan0 --duration 10 --rate 0
+[2026-05-02 21:47:17] [3/25] dos-py — rodada 3/5
+[2026-05-02 21:47:17]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/DoS-attack.py --iface vcan0 --duration 10 --rate 0
+[2026-05-02 21:47:32] [4/25] dos-py — rodada 4/5
+[2026-05-02 21:47:32]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/DoS-attack.py --iface vcan0 --duration 10 --rate 0
+[2026-05-02 21:47:47] [5/25] dos-py — rodada 5/5
+[2026-05-02 21:47:47]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/DoS-attack.py --iface vcan0 --duration 10 --rate 0
+[2026-05-02 21:48:02] 
+[2026-05-02 21:48:02] --- Ataque: dos-cangen (5 repetições) ---
+[2026-05-02 21:48:02] [6/25] dos-cangen — rodada 1/5
+[2026-05-02 21:48:02]   CMD: PERF_RAW=/tmp/perfcangen.aT3fcQ bash /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/dos-cangen-attack.sh ...
+[2026-05-02 21:48:17] [7/25] dos-cangen — rodada 2/5
+[2026-05-02 21:48:17]   CMD: PERF_RAW=/tmp/perfcangen.bp9kLV bash /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/dos-cangen-attack.sh ...
+[2026-05-02 21:48:33] [8/25] dos-cangen — rodada 3/5
+[2026-05-02 21:48:33]   CMD: PERF_RAW=/tmp/perfcangen.PlmqxL bash /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/dos-cangen-attack.sh ...
+[2026-05-02 21:48:48] [9/25] dos-cangen — rodada 4/5
+[2026-05-02 21:48:48]   CMD: PERF_RAW=/tmp/perfcangen.X7znIe bash /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/dos-cangen-attack.sh ...
+[2026-05-02 21:49:03] [10/25] dos-cangen — rodada 5/5
+[2026-05-02 21:49:03]   CMD: PERF_RAW=/tmp/perfcangen.8AnmCE bash /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/dos-cangen-attack.sh ...
+[2026-05-02 21:49:18] 
+[2026-05-02 21:49:18] --- Ataque: fuzzing (5 repetições) ---
+[2026-05-02 21:49:18] [11/25] fuzzing — rodada 1/5
+[2026-05-02 21:49:18]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Fuzzy-attack.py --iface vcan0 --duration 10 --seed 43
+[2026-05-02 21:49:33] [12/25] fuzzing — rodada 2/5
+[2026-05-02 21:49:33]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Fuzzy-attack.py --iface vcan0 --duration 10 --seed 44
+[2026-05-02 21:49:48] [13/25] fuzzing — rodada 3/5
+[2026-05-02 21:49:48]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Fuzzy-attack.py --iface vcan0 --duration 10 --seed 45
+[2026-05-02 21:50:03] [14/25] fuzzing — rodada 4/5
+[2026-05-02 21:50:03]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Fuzzy-attack.py --iface vcan0 --duration 10 --seed 46
+[2026-05-02 21:50:18] [15/25] fuzzing — rodada 5/5
+[2026-05-02 21:50:18]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Fuzzy-attack.py --iface vcan0 --duration 10 --seed 47
+[2026-05-02 21:50:33] 
+[2026-05-02 21:50:33] --- Ataque: replay (5 repetições) ---
+[2026-05-02 21:50:33] [16/25] replay — rodada 1/5
+[2026-05-02 21:50:33]   CMD: timeout 10s python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Replay-attack.py replay --iface vcan0 --in /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/captura_replay.log --speedup 2 --loops 999
+[2026-05-02 21:50:49] [17/25] replay — rodada 2/5
+[2026-05-02 21:50:49]   CMD: timeout 10s python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Replay-attack.py replay --iface vcan0 --in /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/captura_replay.log --speedup 2 --loops 999
+[2026-05-02 21:51:04] [18/25] replay — rodada 3/5
+[2026-05-02 21:51:04]   CMD: timeout 10s python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Replay-attack.py replay --iface vcan0 --in /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/captura_replay.log --speedup 2 --loops 999
+[2026-05-02 21:51:19] [19/25] replay — rodada 4/5
+[2026-05-02 21:51:19]   CMD: timeout 10s python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Replay-attack.py replay --iface vcan0 --in /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/captura_replay.log --speedup 2 --loops 999
+[2026-05-02 21:51:34] [20/25] replay — rodada 5/5
+[2026-05-02 21:51:34]   CMD: timeout 10s python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Replay-attack.py replay --iface vcan0 --in /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/captura_replay.log --speedup 2 --loops 999
+[2026-05-02 21:51:49] 
+[2026-05-02 21:51:49] --- Ataque: spoofing (5 repetições) ---
+[2026-05-02 21:51:49] [21/25] spoofing — rodada 1/5
+[2026-05-02 21:51:49]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Spoofing-attack.py --iface vcan0 --target speed --value 220 --duration 10 --rate 1
+[2026-05-02 21:52:04] [22/25] spoofing — rodada 2/5
+[2026-05-02 21:52:04]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Spoofing-attack.py --iface vcan0 --target speed --value 220 --duration 10 --rate 1
+[2026-05-02 21:52:19] [23/25] spoofing — rodada 3/5
+[2026-05-02 21:52:19]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Spoofing-attack.py --iface vcan0 --target speed --value 220 --duration 10 --rate 1
+[2026-05-02 21:52:34] [24/25] spoofing — rodada 4/5
+[2026-05-02 21:52:34]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Spoofing-attack.py --iface vcan0 --target speed --value 220 --duration 10 --rate 1
+[2026-05-02 21:52:49] [25/25] spoofing — rodada 5/5
+[2026-05-02 21:52:49]   CMD: python3 /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario1-baseline/../scripts-attacks/Spoofing-attack.py --iface vcan0 --target speed --value 220 --duration 10 --rate 1
+[2026-05-02 21:53:04] 
+[2026-05-02 21:53:04] ============================================================
+[2026-05-02 21:53:04]   COLETA CONCLUÍDA — dados em /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/master-experiment/master_results/20260502-214636/perf_data.csv
+[2026-05-02 21:53:04]   Para análise estatística: python3 ../analyze_all.py --master-dir <dir>
+[2026-05-02 21:53:04] ============================================================

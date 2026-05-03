@@ -7,15 +7,18 @@ IFACE="vcan0"
 DURATION=30 # segundos/ataque
 REPS=20
 COOLDOWN=5
-ATTACKS="dos-python dos-cangen"
+ATTACKS="dos-py dos-cangen fuzzing replay spoofing"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATTACK_DIR="$(dirname "$SCRIPT_DIR")"
+ATTACK_DIR="$SCRIPT_DIR/../scripts-attacks"
 RESULTS_DIR="${SCRIPT_DIR}/results-comparison-dos"
 REPLAY_LOG="${SCRIPT_DIR}/captura_replay.log"
-REPLAY_RECORD_TIME=20
+REPLAY_RECORD_TIME=30
 
-# Métricas do perf
-PERF_EVENTS="cycles,instructions,cache-references,cache-misses,context-switches,page-faults,task-clock"
+# Helper compartilhado de coleta perf (define o formato canônico).
+. "${SCRIPT_DIR}/../lib/perf_csv.sh"
+PERF_DATA_CSV="${PERF_DATA_CSV:-${RESULTS_DIR}/perf_data.csv}"
+PERF_EVENTS="${PERF_EVENTS:-$PERF_EVENTS_DEFAULT}"
+
 
 # PARSING
 usage() {
@@ -64,29 +67,32 @@ log() {
 run_perf_on_attack() {
     local attack="$1"
     local run_num="$2"
-    local perf_csv="${RESULTS_DIR}/raw/${attack}_run$(printf '%02d' "$run_num").csv"
 
-    # dos-cangen: shell script gerencia o próprio perf internamente.
+    # caso especial: dos-cangen é delegado a um script externo
     if [[ "$attack" == "dos-cangen" ]]; then
         local cangen_script="${ATTACK_DIR}/dos-cangen-attack.sh"
         if [[ ! -f "$cangen_script" ]]; then
             log "  [ERRO] Script cangen não encontrado: $cangen_script"
             return 1
         fi
-        log "  CMD: PERF_CSV=... PERF_EVENTS=... RUN_NUM=$run_num bash $cangen_script ..."
-        PERF_CSV="$perf_csv" \
+
+        local raw
+        raw="$(mktemp -t perfcangen.XXXXXX)"
+        log "  CMD: PERF_RAW=$raw bash $cangen_script ..."
+
+        PERF_RAW="$raw" \
         PERF_EVENTS="$PERF_EVENTS" \
-        RUN_NUM="$run_num" \
-        ATTACK_LABEL="dos-cangen" \
             bash "$cangen_script" -i "$IFACE" -d "$DURATION" -g 0 -m fixed || true
+
+        perf_csv_append_raw "$raw" "$PERF_DATA_CSV" \
+            baseline process dos-cangen "$run_num"
         return 0
     fi
 
+    # demais ataques: comando síncrono que perf "wrapa" diretamente
     local attack_cmd
-
-    # Monta o comando do ataque
     case "$attack" in
-        dos-python)
+        dos-py)
             attack_cmd="python3 ${ATTACK_DIR}/DoS-attack.py --iface $IFACE --duration $DURATION --rate 0"
             ;;
         fuzzing)
@@ -106,24 +112,11 @@ run_perf_on_attack() {
 
     log "  CMD: $attack_cmd"
 
-    # Cabeçalho CSV
-    echo "attack;run;metric;value;unit" > "$perf_csv"
-
-    # perf stat com separador ';' para parsing
-    LC_NUMERIC=C perf stat -x ';' -e "$PERF_EVENTS" \
-         -o "${perf_csv}.raw" \
-         -- bash -c "exec $attack_cmd" || true
-
-    # Parse do output raw para CSV limpo
-    while IFS=';' read -r value unit event _rest; do
-        [[ -z "$value" || "$value" == \#* ]] && continue
-        value="${value// /}"
-        event="${event// /}"
-        [[ -z "$event" ]] && continue
-        echo "${attack};${run_num};${event};${value};${unit}" >> "$perf_csv"
-    done < "${perf_csv}.raw"
-    rm -f "${perf_csv}.raw"
+    perf_csv_run "$PERF_DATA_CSV" baseline process "$attack" "$run_num" \
+        "$PERF_EVENTS" \
+        -- bash -c "exec $attack_cmd"
 }
+
 
 # SNIFFING PARA REPLAY
 ensure_replay_log() {
@@ -203,8 +196,10 @@ check_icsim_running() {
 }
 
 main() {
-    mkdir -p "${RESULTS_DIR}/raw"
+    mkdir -p "${RESULTS_DIR}"
     : > "${RESULTS_DIR}/experiment_log.txt"
+
+    perf_csv_init "$PERF_DATA_CSV"
 
     log "Verificando pré-requisitos..."
     check_icsim_running 
@@ -213,6 +208,7 @@ main() {
     log "  ETAPA 1 — TESTE DE ESTRESSE (BASELINE)"
     log "  Ataques : $ATTACKS"
     log "  Repetições: $REPS × ${DURATION}s cada"
+    log "  CSV alvo : $PERF_DATA_CSV"
     log "============================================================"
 
     collect_sysinfo
@@ -248,14 +244,9 @@ main() {
 
     log ""
     log "============================================================"
-    log "  COLETA CONCLUÍDA — executando análise estatística..."
+    log "  COLETA CONCLUÍDA — dados em $PERF_DATA_CSV"
+    log "  Para análise estatística: python3 ../analyze_all.py --master-dir <dir>"
     log "============================================================"
-
-    python3 "${SCRIPT_DIR}/analyze_results.py" \
-        --input-dir "${RESULTS_DIR}/raw" \
-        --output "${RESULTS_DIR}/summary.csv"
-
-    log "Resultados em: ${RESULTS_DIR}/"
 }
 
 main "$@"

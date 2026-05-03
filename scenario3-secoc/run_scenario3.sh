@@ -5,7 +5,7 @@
 #   4) Dispara o ataque escolhido contra vcan0 por --duration segundos
 #   5) Finaliza tudo em ordem, coleta relatório do gateway e CSV do perf
 #
-# Ataques suportados: dos | fuzzing | replay | spoofing | cangen | idle
+# Ataques suportados: dos-py | fuzzing | replay | spoofing | dos-cangen | idle
 #
 set -euo pipefail
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
@@ -16,7 +16,7 @@ shift $(( $# < 2 ? $# : 2 ))
 EXTRA_GATEWAY_FLAGS=("$@")
 
 if [[ -z "$ATTACK" ]]; then
-    echo "uso: $0 <dos|fuzzing|replay|spoofing|cangen|idle> [duration_s] [flags]"
+    echo "uso: $0 <dos-py|fuzzing|replay|spoofing|dos-cangen|idle> [duration_s] [flags]"
     exit 2
 fi
 
@@ -30,6 +30,11 @@ ATAQUES="$HERE/../scripts-attacks"
 RESULTS="$HERE/results/$(date +%Y%m%d-%H%M%S)-${ATTACK}"
 mkdir -p "$RESULTS"
 
+# Helper compartilhado — define o formato canônico do CSV de saída.
+. "$HERE/../lib/perf_csv.sh"
+PERF_DATA_CSV="${PERF_DATA_CSV:-$HERE/results/perf_data.csv}"
+RUN_INDEX="${RUN_INDEX:-1}"
+
 # Higiene: mata instâncias anteriores de sender/gateway para evitar
 # contaminação por processo fantasma (um problema anterior)
 pkill -9 -f 'secoc_sender|secoc_gateway' 2>/dev/null || true
@@ -38,14 +43,10 @@ sleep 0.3
 echo "[info] resultados -> $RESULTS"
 echo "[info] ataque=$ATTACK duração=${DURATION}s gateway_flags=${EXTRA_GATEWAY_FLAGS[*]:-(none)}"
 
-# -----------------------------------------------------------------------------
-# 1) Garantir que os três vcans existem
-# -----------------------------------------------------------------------------
+# Garantir que os três vcans existem
 "$HERE/setup_vcan_triple.sh" >/dev/null
 
-# -----------------------------------------------------------------------------
-# 2) Subir sender e gateway em background
-# -----------------------------------------------------------------------------
+# Subir sender e gateway em background
 cleanup_and_die() {
     local msg="$1"; local code="${2:-9}"
     echo "[erro] $msg"
@@ -74,34 +75,32 @@ if ! kill -0 "$GW_PID" 2>/dev/null; then
 fi
 echo "[info] sender PID=$SENDER_PID  gateway PID=$GW_PID"
 
-# -----------------------------------------------------------------------------
-# 3) perf stat anexado ao gateway (alvo principal da medição)
-# -----------------------------------------------------------------------------
-PERF_CSV="$RESULTS/perf.csv"
-perf stat -p "$GW_PID" \
-    -e cycles,instructions,cache-misses,cache-references,context-switches,task-clock \
-    -x ',' -o "$PERF_CSV" \
+# perf stat anexado ao gateway (alvo principal da medição)
+PERF_EVENTS="${PERF_EVENTS:-$PERF_EVENTS_DEFAULT}"
+
+PERF_GW_RAW="$RESULTS/perf_gateway.raw"
+LC_NUMERIC=C perf stat -p "$GW_PID" \
+    -e "$PERF_EVENTS" \
+    -x ';' -o "$PERF_GW_RAW" \
     -- sleep "$DURATION" &
 PERF_PID=$!
 
-# Opcional: perf também do sender, para decompor o custo total do "SecOC".
-PERF_SENDER_CSV="$RESULTS/perf_sender.csv"
-perf stat -p "$SENDER_PID" \
-    -e cycles,instructions,cache-misses,cache-references,context-switches,task-clock \
-    -x ',' -o "$PERF_SENDER_CSV" \
+# perf também do sender, para decompor o custo total do "SecOC" em autenticação vs verificação
+PERF_SENDER_RAW="$RESULTS/perf_sender.raw"
+LC_NUMERIC=C perf stat -p "$SENDER_PID" \
+    -e "$PERF_EVENTS" \
+    -x ';' -o "$PERF_SENDER_RAW" \
     -- sleep "$DURATION" &
 PERF_SENDER_PID=$!
 
-# -----------------------------------------------------------------------------
-# 4) Disparar ataque
-# -----------------------------------------------------------------------------
+# Disparar ataque
 case "$ATTACK" in
     idle)
         echo "[info] baseline passivo; aguardando $DURATION s"
         sleep "$DURATION"
         ;;
 
-    dos)
+    dos-py)
         python3 "$ATAQUES/DoS-attack.py" --iface vcan0 --duration "$DURATION" --rate 0 \
             >"$RESULTS/attack.log" 2>&1
         ;;
@@ -156,7 +155,7 @@ case "$ATTACK" in
             >"$RESULTS/attack.log" 2>&1
         ;;
 
-    cangen)
+    dos-cangen)
         cangen vcan0 -I 000 -L 8 -D FFFFFFFFFFFFFFFF -g 0 &
         CANGEN_PID=$!
         sleep "$DURATION"
@@ -169,9 +168,7 @@ case "$ATTACK" in
         ;;
 esac
 
-# -----------------------------------------------------------------------------
-# 5) Encerrar perf, gateway e sender em ordem
-# -----------------------------------------------------------------------------
+# Encerrar perf, gateway e sender em ordem
 wait "$PERF_PID"         2>/dev/null || true
 wait "$PERF_SENDER_PID"  2>/dev/null || true
 kill -INT "$GW_PID"      2>/dev/null || true
@@ -179,13 +176,12 @@ kill -INT "$SENDER_PID"  2>/dev/null || true
 wait "$GW_PID"           2>/dev/null || true
 wait "$SENDER_PID"       2>/dev/null || true
 
-echo "[ok] experimento concluído."
-echo
-echo "======= perf GATEWAY ======="
-sed '/^#/d' "$PERF_CSV" | column -t -s ','
-echo
-echo "======= perf SENDER ======="
-sed '/^#/d' "$PERF_SENDER_CSV" | column -t -s ','
+perf_csv_append_raw "$PERF_GW_RAW"     "$PERF_DATA_CSV" \
+    cen3 gateway "$ATTACK" "$RUN_INDEX"
+perf_csv_append_raw "$PERF_SENDER_RAW" "$PERF_DATA_CSV" \
+    cen3 sender  "$ATTACK" "$RUN_INDEX"
+
+echo "[ok] experimento concluído (rep=$RUN_INDEX → $PERF_DATA_CSV)."
 echo
 echo "======= gateway (resumo) ======="
 tail -n 30 "$GW_LOG"
