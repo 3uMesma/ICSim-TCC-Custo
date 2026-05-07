@@ -80,7 +80,7 @@ case "$ATTACK" in
         python3 "$ATAQUES/Fuzzy-attack.py" --iface vcan0 --duration "$DURATION" \
             >"$RESULTS/attack.log" 2>&1
         ;;
-    replay)
+    eplay)
         # Replay tem dois estágios: capturar tráfego legítimo (record) e
         # depois re-injetá-lo (replay). Se ninguém estiver gerando tráfego
         # em vcan0 (icsim+controls não rodando), cai num log pré-gravado
@@ -108,6 +108,52 @@ case "$ATTACK" in
         echo "[replay] fase 2/2: re-injetando por ${DURATION}s (speedup=10x)..." \
             | tee -a "$RESULTS/attack.log"
         python3 "$ATAQUES/Replay-attack.py" replay \
+            --iface vcan0 --in "$CAP" --speedup 10 --loops 99999 \
+            >>"$RESULTS/attack.log" 2>&1 &
+        REPLAY_PID=$!
+        sleep "$DURATION"
+        kill "$REPLAY_PID" 2>/dev/null || true
+        wait "$REPLAY_PID" 2>/dev/null || true
+        ;;
+    replay)
+        SCRIPT="$ATAQUES/Replay-attack.py"
+        [[ -r "$SCRIPT" ]] || cleanup_and_die "não achei $SCRIPT"
+        echo "[info] usando $SCRIPT"
+
+        # Usa a captura compartilhada da campanha (vinda de master_run.sh
+        # via env var REPLAY_LOG). Elimina os 30 s de record intra-rodada
+        # e mantém a janela do perf 100% ocupada com replay.
+        CAP="${REPLAY_LOG:-}"
+        if [[ -z "$CAP" || ! -s "$CAP" ]]; then
+            # Fallback: grava na própria rodada (modo legado).
+            CAP="$RESULTS/capture.log"
+            echo "[replay] sem REPLAY_LOG compartilhado — gravando..." \
+                | tee -a "$RESULTS/attack.log"
+            python3 "$SCRIPT" record \
+                --iface vcan0 --out "$CAP" --record-time 3 \
+                >>"$RESULTS/attack.log" 2>&1 || true
+
+            if [[ ! -s "$CAP" ]]; then
+                FALLBACK="$HERE/../captura.log"
+                if [[ -r "$FALLBACK" ]]; then
+                    echo "[replay] usando fallback: $FALLBACK" \
+                        | tee -a "$RESULTS/attack.log"
+                    sed 's/) can0 /) vcan0 /' "$FALLBACK" > "$CAP"
+                else
+                    echo "[erro] captura vazia e fallback indisponível"
+                    kill "$GW_PID" "$PERF_PID" 2>/dev/null || true
+                    exit 5
+                fi
+            fi
+        else
+            n_frames="$(grep -c '^(' "$CAP" 2>/dev/null || echo 0)"
+            echo "[replay] usando captura compartilhada: $CAP ($n_frames frames)" \
+                | tee -a "$RESULTS/attack.log"
+        fi
+
+        echo "[replay] re-injetando por ${DURATION}s (speedup=10x)..." \
+            | tee -a "$RESULTS/attack.log"
+        python3 "$SCRIPT" replay \
             --iface vcan0 --in "$CAP" --speedup 10 --loops 99999 \
             >>"$RESULTS/attack.log" 2>&1 &
         REPLAY_PID=$!
