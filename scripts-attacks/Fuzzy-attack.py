@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
 Transmitir quadros CAN com IDs e payloads aleatórios para
-provocar comportamentos imprevistos em ECUs
+provocar comportamentos imprevistos em ECUs.
 """
 
 import argparse
 import random
 import sys
-import time
+from pathlib import Path
+
 import can
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.attack_runtime import open_socketcan, run_attack_loop, print_report
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,7 +42,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     rng = random.Random(args.seed)
-    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
+    bus = open_socketcan(args.iface)
 
     print(
         f"[INFO] Iniciando Fuzzing em {args.iface} | "
@@ -46,34 +50,20 @@ def main() -> None:
         f"seed={args.seed} | duração={args.duration}s"
     )
 
-    sent = 0
-    t0 = time.perf_counter()
-    deadline = t0 + args.duration
-    interval_s = args.rate / 1000.0
+    # next_message fecha sobre rng — ordem das chamadas rng.randint
+    # (id, dlc, depois byte-a-byte do payload) é o que mantém determinismo
+    # com --seed. NÃO trocar a ordem.
+    def next_message() -> can.Message:
+        arb_id = rng.randint(args.id_min, args.id_max)
+        dlc = rng.randint(0, 8)
+        data = bytes(rng.randint(0, 255) for _ in range(dlc))
+        return can.Message(arbitration_id=arb_id, data=data, is_extended_id=False)
 
-    try:
-        while time.perf_counter() < deadline:
-            arb_id = rng.randint(args.id_min, args.id_max)
-            dlc = rng.randint(0, 8)
-            data = bytes(rng.randint(0, 255) for _ in range(dlc))
-            msg = can.Message(arbitration_id=arb_id, data=data, is_extended_id=False)
-            try:
-                bus.send(msg)
-                sent += 1
-            except can.CanError:
-                pass  # buffer cheio - descartar e continuar estresse
-            if interval_s > 0:
-                time.sleep(interval_s)
-    except KeyboardInterrupt:
-        print("\n[INFO] Interrompido pelo usuário.")
-    finally:
-        elapsed = time.perf_counter() - t0
-        bus.shutdown()
-        print(
-            f"[RESULTADO] Frames enviados: {sent} | "
-            f"Tempo: {elapsed:.3f}s | "
-            f"Taxa média: {sent/elapsed:.0f} fps"
-        )
+    stats = run_attack_loop(
+        args.duration, bus, next_message,
+        rate_ms=args.rate, swallow_send_errors=True,
+    )
+    print_report("Fuzzy", stats)
 
 
 if __name__ == "__main__":

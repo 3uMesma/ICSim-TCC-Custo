@@ -1,7 +1,7 @@
 # O script de DoS usando PYthon é limitado pelo GIL e pelo overhead
-# do interpretador Python. Para estabelecer um LIMITE SUPERIOR de estresse usamos `cangen`, ferramenta em C nativa do pacote can-utils,
-# que escreve diretamente em SocketCAN via raw socket sem qualquer camada
-# interpretada.
+# do interpretador Python. Para estabelecer um LIMITE SUPERIOR de estresse usamos 
+# `cangen`, ferramenta em C nativa do pacote can-utils, que escreve diretamente 
+# em SocketCAN via raw socket sem qualquer camada interpretada.
 
 set -euo pipefail
 

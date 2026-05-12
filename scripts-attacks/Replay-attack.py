@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Captura tráfego legítimo (fase de sniffing) e o
-retransmite posteriormente (fase de replay)
+retransmite posteriormente (fase de replay).
 - Etapa Sniffing: grava por --record-time segundos um log no formato candump
 - Etapa Replay: reproduz o log preservando ou acelerando o speedup
 """
@@ -9,11 +9,17 @@ retransmite posteriormente (fase de replay)
 import argparse
 import sys
 import time
+from pathlib import Path
+
 import can
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.attack_runtime import open_socketcan
+from lib.candump_io import iter_candump, write_line
 
 
 def cmd_record(args: argparse.Namespace) -> None:
-    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
+    bus = open_socketcan(args.iface)
     print(f"[INFO] Gravando {args.record_time}s de {args.iface} -> {args.out}")
     n = 0
     t0 = time.perf_counter()
@@ -24,12 +30,8 @@ def cmd_record(args: argparse.Namespace) -> None:
                 msg = bus.recv(timeout=0.5)
                 if msg is None:
                     continue
-                # Formato candump: (timestamp) iface ID#DATA
-                hexd = msg.data.hex().upper()
-                f.write(
-                    f"({msg.timestamp:.6f}) {args.iface} "
-                    f"{msg.arbitration_id:03X}#{hexd}\n"
-                )
+                write_line(f, msg.timestamp, args.iface,
+                           msg.arbitration_id, msg.data)
                 n += 1
         except KeyboardInterrupt:
             print("\n[INFO] Interrompido pelo usuário.")
@@ -39,27 +41,12 @@ def cmd_record(args: argparse.Namespace) -> None:
 
 
 def cmd_replay(args: argparse.Namespace) -> None:
-    # Parse simples do formato candump: (ts) iface ID#DATA
-    frames = []
-    with open(args.input) as f:
-        for line in f:
-            line = line.strip()
-            if not line or not line.startswith("("):
-                continue
-            try:
-                ts_str, _iface, frame = line.split(maxsplit=2)
-                ts = float(ts_str.strip("()"))
-                arb, data_hex = frame.split("#", 1)
-                arb_id = int(arb, 16)
-                data = bytes.fromhex(data_hex) if data_hex else b""
-                frames.append((ts, arb_id, data))
-            except ValueError:
-                continue
+    frames = [(fr.ts, fr.arb_id, fr.data) for fr in iter_candump(Path(args.input))]
 
     if not frames:
         sys.exit("[ERRO] Nenhum frame válido encontrado no log.")
 
-    bus = can.interface.Bus(channel=args.iface, interface="socketcan")
+    bus = open_socketcan(args.iface)
     print(
         f"[INFO] Replay de {len(frames)} frames | "
         f"speedup={args.speedup}x | loops={args.loops}"
@@ -68,11 +55,11 @@ def cmd_replay(args: argparse.Namespace) -> None:
     sent = 0
     t_start = time.perf_counter()
     try:
-        for loop in range(args.loops):
+        for _loop in range(args.loops):
             t_origin = frames[0][0]
             t_loop_start = time.perf_counter()
             for ts, arb_id, data in frames:
-                # Manter espaçamento original (acelerado)
+                # Manter espaçamento original (acelerado pelo speedup)
                 target = t_loop_start + (ts - t_origin) / args.speedup
                 delay = target - time.perf_counter()
                 if delay > 0:
