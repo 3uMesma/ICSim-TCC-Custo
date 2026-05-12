@@ -7,6 +7,7 @@ scenario1-baseline/results-sw
 scenario2-firewall/results
 scenario3-secoc/results
 master-experiment/resultados-sw
+master-experiment/lib/__pycache__
 README_campanha.md
 master-experiment/master_results
 /anotacoes
