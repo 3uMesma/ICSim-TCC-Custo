@@ -6,8 +6,7 @@ scenario1-baseline/results-comparison-dos
 scenario1-baseline/results-sw
 scenario2-firewall/results
 scenario3-secoc/results
-master-experiment/*.py
 master-experiment/resultados-sw
-master-experiment/roda_analise_tudo.sh
 README_campanha.md
 master-experiment/master_results
+/anotacoes

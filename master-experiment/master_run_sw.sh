@@ -9,12 +9,6 @@
 #
 #   2. Usa 10 rps
 #
-# Uso
-# ---
-#   sudo ./master_run_sw.sh                        # campanha completa
-#   sudo ./master_run_sw.sh -n 1 -d 10             # smoke test (~6 min)
-#   sudo ./master_run_sw.sh -s baseline            # só baseline
-#   sudo ./master_run_sw.sh --no-icsim             # headless
 
 set -euo pipefail
 export LC_NUMERIC=C
