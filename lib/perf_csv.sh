@@ -60,9 +60,8 @@ perf_csv_append_raw() {
     #   value;unit;event;counter_runtime;pct_run;metric_value;metric_unit
     while IFS=';' read -r value unit event _rest; do
         [[ -z "$value" || "$value" == \#* ]] && continue
-        # Remove TODO whitespace dos campos primários — números e nomes de
-        # evento/unidade nunca têm espaços internos relevantes (o "insn per
-        # cycle" fica no metric_unit, que descartamos).
+        # Remove todo whitespace dos campos primários — números e nomes de
+        # evento/unidade nunca têm espaços internos relevantes 
         value="${value//[[:space:]]/}"
         unit="${unit//[[:space:]]/}"
         event="${event//[[:space:]]/}"
@@ -96,12 +95,8 @@ perf_csv_run() {
 
 # perf_csv_run_systemwide <out_csv> <scenario> <attack> <run> <duration_s> <events>
 #
-# Coleta SYSTEM-WIDE (`perf stat -a`) durante <duration_s> segundos. Use este
-# primitivo na ETAPA C (campanha system-wide), em que o objetivo é medir o
-# custo agregado da camada de segurança sobre TODO o sistema, não sobre um
-# processo específico. Ideal para a comparação `overhead = cen − baseline`,
-# pois o "denominador" (sistema operacional inteiro) é o mesmo nos três
-# cenários.
+# Ideal para a comparação `overhead = cen − baseline`, pois o "denominador" 
+# (sistema operacional inteiro) é o mesmo nos três cenários.
 #
 # Diferenças em relação a `perf_csv_run`:
 #   * usa `-a` (system-wide) em vez de `-p PID` ou wrap de comando

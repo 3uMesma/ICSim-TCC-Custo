@@ -104,7 +104,7 @@ def build_normalized_table(perf: pd.DataFrame, gwlogs: pd.DataFrame) -> pd.DataF
         unit_factor = 1.0
         unit_out = ""
         if met == "task-clock":
-            unit_factor = 1e6  # msec -> nsec, para obter ns/frame
+            unit_factor = 1e6  # msec → nsec, para obter ns/frame
             unit_out = "ns/frame"
         else:
             unit_out = f"{met}/frame"

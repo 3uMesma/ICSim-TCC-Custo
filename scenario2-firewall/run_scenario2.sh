@@ -12,6 +12,11 @@
 #   - "cangen" usa a ferramenta nativa do can-utils
 # 
 set -euo pipefail
+export LC_NUMERIC=C
+
+# espera perf attachar / processo dormir.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/../lib/probes.sh"
 
 ATTACK="${1:-}"
 DURATION="${2:-30}"
@@ -66,6 +71,9 @@ LC_NUMERIC=C perf stat -p "$GW_PID" \
     -- sleep "$DURATION" &
 PERF_PID=$!
 
+# esperar perf abrir counters antes de disparar o ataque.
+wait_perf_attached "$PERF_PID" || true
+
 # Disparar ataque
 case "$ATTACK" in
     idle)
@@ -80,52 +88,16 @@ case "$ATTACK" in
         python3 "$ATAQUES/Fuzzy-attack.py" --iface vcan0 --duration "$DURATION" \
             >"$RESULTS/attack.log" 2>&1
         ;;
-    eplay)
-        # Replay tem dois estágios: capturar tráfego legítimo (record) e
-        # depois re-injetá-lo (replay). Se ninguém estiver gerando tráfego
-        # em vcan0 (icsim+controls não rodando), cai num log pré-gravado
-        # do ICSim para que o experimento ainda produza resultado.
-        CAP="$RESULTS/capture.log"
-        echo "[replay] fase 1/2: gravando $DURATION s de vcan0..." \
-            | tee -a "$RESULTS/attack.log"
-        python3 "$ATAQUES/Replay-attack.py" record \
-            --iface vcan0 --out "$CAP" --record-time "$DURATION" \
-            >>"$RESULTS/attack.log" 2>&1 || true
-
-        if [[ ! -s "$CAP" ]]; then
-            FALLBACK="$HERE/../captura.log"
-            if [[ -r "$FALLBACK" ]]; then
-                echo "[replay] nenhum tráfego legítimo em vcan0 — usando $FALLBACK" \
-                    | tee -a "$RESULTS/attack.log"
-                sed 's/) can0 /) vcan0 /' "$FALLBACK" > "$CAP"
-            else
-                echo "[erro] captura vazia e sample-can.log indisponível"
-                kill "$GW_PID" "$PERF_PID" 2>/dev/null || true
-                exit 5
-            fi
-        fi
-
-        echo "[replay] fase 2/2: re-injetando por ${DURATION}s (speedup=10x)..." \
-            | tee -a "$RESULTS/attack.log"
-        python3 "$ATAQUES/Replay-attack.py" replay \
-            --iface vcan0 --in "$CAP" --speedup 10 --loops 99999 \
-            >>"$RESULTS/attack.log" 2>&1 &
-        REPLAY_PID=$!
-        sleep "$DURATION"
-        kill "$REPLAY_PID" 2>/dev/null || true
-        wait "$REPLAY_PID" 2>/dev/null || true
-        ;;
     replay)
         SCRIPT="$ATAQUES/Replay-attack.py"
         [[ -r "$SCRIPT" ]] || cleanup_and_die "não achei $SCRIPT"
         echo "[info] usando $SCRIPT"
 
         # Usa a captura compartilhada da campanha (vinda de master_run.sh
-        # via env var REPLAY_LOG). Elimina os 30 s de record intra-rodada
-        # e mantém a janela do perf 100% ocupada com replay.
+        # via env var REPLAY_LOG)
         CAP="${REPLAY_LOG:-}"
         if [[ -z "$CAP" || ! -s "$CAP" ]]; then
-            # Fallback: grava na própria rodada (modo legado).
+            # Fallback: grava na própria rodada
             CAP="$RESULTS/capture.log"
             echo "[replay] sem REPLAY_LOG compartilhado — gravando..." \
                 | tee -a "$RESULTS/attack.log"

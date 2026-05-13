@@ -1,6 +1,7 @@
 # Para cada ataque, executa N repetições com perf e salva CSVs brutos
 
 set -euo pipefail # por segurança
+export LC_NUMERIC=C
 
 # CONFIGURAÇÕES
 IFACE="vcan0"

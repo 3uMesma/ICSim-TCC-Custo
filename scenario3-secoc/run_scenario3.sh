@@ -8,7 +8,11 @@
 # Ataques suportados: dos-py | fuzzing | replay | spoofing | dos-cangen | idle
 #
 set -euo pipefail
+export LC_NUMERIC=C
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/../lib/probes.sh"  # wait_perf_attached, wait_proc_sleeping
 
 ATTACK="${1:-}"
 DURATION="${2:-30}"
@@ -92,6 +96,10 @@ LC_NUMERIC=C perf stat -p "$SENDER_PID" \
     -x ';' -o "$PERF_SENDER_RAW" \
     -- sleep "$DURATION" &
 PERF_SENDER_PID=$!
+
+# esperar perf abrir counters em ambos antes do ataque.
+wait_perf_attached "$PERF_PID" || true
+wait_perf_attached "$PERF_SENDER_PID" || true
 
 # Disparar ataque
 case "$ATTACK" in

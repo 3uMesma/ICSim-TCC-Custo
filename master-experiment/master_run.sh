@@ -5,6 +5,7 @@
 #     ├── cenário 2    (Firewall/Allowlist)         → cenario2-firewall/run_scenario2.sh
 #     └── cenário 3    (SecOC simplificado)         → cenario3-secoc/run_scenario3.sh
 #
+
 set -euo pipefail
 export LC_NUMERIC=C
 

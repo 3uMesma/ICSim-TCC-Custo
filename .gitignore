@@ -7,7 +7,15 @@ scenario1-baseline/results-sw
 scenario2-firewall/results
 scenario3-secoc/results
 master-experiment/resultados-sw
-master-experiment/lib/__pycache__
+master-experiment/roda_analise_tudo.sh
 README_campanha.md
 master-experiment/master_results
-/anotacoes
+anotacoes/
+
+# Binários
+/icsim
+/controls
+scenario2-firewall/gateway
+scenario3-secoc/secoc_sender
+scenario3-secoc/secoc_gateway
+scenario3-secoc/test_cmac

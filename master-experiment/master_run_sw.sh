@@ -42,6 +42,7 @@ export PERF_DATA_CSV
 
 # shellcheck source=lib/perf_csv.sh
 . "$HERE/../lib/perf_csv.sh"
+. "$HERE/../lib/governor.sh"
 
 ICSIM_PID=""
 CONTROLS_PID=""
@@ -77,6 +78,9 @@ die() {
     log "[ERRO] $*"
     exit 1
 }
+
+warn() { log "[AVISO] $*"; }
+fail() { log "[ERRO] $*"; exit 1; }
 
 # PARSING DE ARGUMENTOS
 while [[ $# -gt 0 ]]; do
@@ -138,8 +142,7 @@ check_prereqs() {
         fi
     fi
 
-    # Aviso explícito: perf_event_paranoid pode bloquear -a mesmo em root
-    # em alguns kernels. Não falha aqui, só registra.
+    # perf_event_paranoid pode bloquear -a mesmo em root em alguns kernels. Não falha aqui, só registra.
     local pp
     pp="$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo 'N/A')"
     if [[ "$pp" =~ ^[0-9]+$ && "$pp" -gt 1 ]]; then
@@ -401,7 +404,7 @@ postprocess() {
         log "Rodando analyze_overhead_sw.py sobre $PERF_DATA_CSV..."
         python3 "$HERE/analyze_overhead_sw.py" \
             --master-dir "$RESULTS_ROOT" \
-            2>&1 | tee -a "$MASTER_LOG" || true
+            2>&1 | tee -a "$MASTER_LOG" || warn "etapa de pós-processamento retornou não-zero"
     fi
 
     # 2) Análise de latência/jitter — Etapa B (candump por rodada).
@@ -410,7 +413,7 @@ postprocess() {
         log "Rodando analyze_latency.py sobre logs candump em $RESULTS_ROOT..."
         python3 "$HERE/analyze_latency.py" \
             --master-dir "$RESULTS_ROOT" \
-            2>&1 | tee -a "$MASTER_LOG" || true
+            2>&1 | tee -a "$MASTER_LOG" || warn "etapa de pós-processamento retornou não-zero"
     fi
 
     # 3) Figuras de latência — só roda se a análise gerou os CSVs.
@@ -420,7 +423,7 @@ postprocess() {
         log "Gerando figuras de latência..."
         python3 "$HERE/plot_latency.py" \
             --master-dir "$RESULTS_ROOT" \
-            2>&1 | tee -a "$MASTER_LOG" || true
+            2>&1 | tee -a "$MASTER_LOG" || warn "etapa de pós-processamento retornou não-zero"
     fi
 
     log ""
@@ -437,16 +440,18 @@ cleanup() {
     log "Limpando processos em background..."
     stop_icsim
     pkill -P $$ 2>/dev/null || true
+    restore_governor
 }
 trap cleanup EXIT INT TERM
 
-# MAIN 
+# MAIN
 main() {
     require_root
     mkdir -p "$RESULTS_ROOT"
     : > "$MASTER_LOG"
     check_prereqs
     setup_vcans
+    pin_performance_mode
     collect_sysinfo
 
     perf_csv_init "$PERF_DATA_CSV"

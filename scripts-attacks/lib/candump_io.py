@@ -2,8 +2,8 @@
 # Linha típica: (1747526400.123456) vcan0 244#01020304ABCDEF01
 #
 # Nota: a mesma regex existe em master-experiment/lib/perf_io.py.
-# Repetida intencionalmente — domínios diferentes (análise estatística vs
-# runtime de ataque) não compartilham lib transversal.
+# Repetida intencionalmente, domínios diferentes (análise estatística vs
+# runtime de ataque) 
 
 from __future__ import annotations
 

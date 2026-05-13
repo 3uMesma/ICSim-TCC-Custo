@@ -11,6 +11,7 @@
 #   sudo ./run_scenario2_sw.sh <attack> [duration_s] [extra_gateway_flags...]
 
 set -euo pipefail
+export LC_NUMERIC=C
 
 ATTACK="${1:-}"
 DURATION="${2:-30}"
@@ -99,11 +100,10 @@ case "$ATTACK" in
         echo "[info] usando $SCRIPT"
 
         # Usa a captura compartilhada da campanha (vinda de master_run_sw.sh
-        # via env var REPLAY_LOG). Elimina o record intra-rodada e mantém a
-        # janela do perf 100% ocupada com replay.
+        # via env var REPLAY_LOG)
         CAP="${REPLAY_LOG:-}"
         if [[ -z "$CAP" || ! -s "$CAP" ]]; then
-            # Fallback: grava na própria rodada (modo legado).
+            # Fallback: grava na própria rodada
             CAP="$RESULTS/capture.log"
             echo "[replay] sem REPLAY_LOG compartilhado — gravando..." \
                 | tee -a "$RESULTS/attack.log"
