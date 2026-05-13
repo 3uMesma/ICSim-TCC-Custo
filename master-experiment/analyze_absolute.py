@@ -92,7 +92,7 @@ def build_normalized_table(perf: pd.DataFrame, gwlogs: pd.DataFrame) -> pd.DataF
     segurança" é o número de frames que entram no gateway — o sender processa
     apenas os legítimos.
 
-    Excluímos `replay` (janela perf ≠ janela gateway → enviesado). (VER ISSO DEPOIS! ANTES DA VERSÃO FINAL)
+    Ataques em NORMALIZE_EXCLUDE são pulados (janela perf ≠ janela gateway)
     """
     # rx_total por (scenario, attack, run, component=gateway)
     rx = (gwlogs[(gwlogs.metric == "rx_total") & (gwlogs.component == "gateway")]
@@ -361,21 +361,24 @@ def main() -> int:
     print(f"\n  ✓ normalized_cost.csv ({len(normalized):,} linhas) → {norm_csv}")
 
     # LaTeX para cycles/frame e instructions/frame
+    excluded = sorted(NORMALIZE_EXCLUDE)
+    excl_note = ""
+    if excluded:
+        excl_note = (" Ataques omitidos por incompatibilidade entre janela do "
+                     f"\\texttt{{perf}} e do gateway: {', '.join(excluded)}.")
     write_latex(
         to_wide_absolute(normalized, "cycles", scale=1.0, decimals=1, latex=True),
         master / "normalized_cost_cycles.tex",
-        caption="Custo normalizado da camada de segurança em ciclos por frame "
-                "recebido pelo gateway (média $\\pm$ IC$_{95}$, n=20). "
-                "Replay omitido por incompatibilidade entre janela do "
-                "\\texttt{perf} (30\\,s) e janela de execução do gateway "
-                "($>$30\\,s).",
+        caption=("Custo normalizado da camada de segurança em ciclos por frame "
+                 "recebido pelo gateway (média $\\pm$ IC$_{95}$, n=20)." +
+                 excl_note),
         label="tab:norm-cycles",
     )
     write_latex(
         to_wide_absolute(normalized, "instructions", scale=1.0, decimals=1, latex=True),
         master / "normalized_cost_instructions.tex",
-        caption="Instruções por frame recebido pelo gateway "
-                "(média $\\pm$ IC$_{95}$, n=20). Replay omitido (caveat de janela).",
+        caption=("Instruções por frame recebido pelo gateway "
+                 "(média $\\pm$ IC$_{95}$, n=20)." + excl_note),
         label="tab:norm-instructions",
     )
 

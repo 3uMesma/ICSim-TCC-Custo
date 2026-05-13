@@ -19,8 +19,7 @@ PERF_METRICS_FOCUS_SW: list[str] = [
     "context-switches", "cache-misses", "page-faults",
 ]
 
-# Ataques cuja janela perf não bate com a janela do gateway (RESOLVER ISSO!!!!!)
-NORMALIZE_EXCLUDE: set[str] = {"replay"}
+NORMALIZE_EXCLUDE: set[str] = set()
 
 # IDs legítimos da allowlist do projeto (hex sem 0x).
 LEGITIMATE_IDS: set[str] = {"244", "188", "19B"}

@@ -36,6 +36,8 @@ MASTER_LOG="$RESULTS_ROOT/master_log.txt"
 SYSINFO="$RESULTS_ROOT/sysinfo.txt"
 REPLAY_LOG="$RESULTS_ROOT/replay_capture.log"
 export REPLAY_LOG     # ← visível para os run_*_sw.sh
+REPLAY_LOG_CEN3="$RESULTS_ROOT/replay_capture_cen3.log"
+export REPLAY_LOG_CEN3
 
 PERF_DATA_CSV="$RESULTS_ROOT/perf_data.csv"
 export PERF_DATA_CSV
@@ -277,6 +279,46 @@ ensure_replay_capture() {
     fi
 }
 
+# Captura cen3 (frames autenticados pelo sender em vcan0)
+ensure_replay_capture_cen3() {
+    echo "$ATTACKS" | grep -qw replay || return 0
+    [[ " $SCENARIOS " == *" cen3 "* ]] || return 0
+    if [[ -s "$REPLAY_LOG_CEN3" ]]; then
+        log "Reutilizando captura cen3 existente: $REPLAY_LOG_CEN3"
+        return 0
+    fi
+
+    log "Capturando 3s de frames autenticados em vcan0 (sender + controls em vcan_trust)…"
+    "$CEN3_DIR/secoc_sender" -i vcan_trust -o vcan0 >>"$MASTER_LOG" 2>&1 &
+    local SENDER_PID=$!
+    sleep 0.3
+    if ! kill -0 "$SENDER_PID" 2>/dev/null; then
+        warn "secoc_sender não subiu — cen3 replay vai cair no fallback intra-rodada."
+        return 0
+    fi
+
+    local prev_use_icsim="$USE_ICSIM"
+    start_icsim_for cen3
+    USE_ICSIM="$prev_use_icsim"
+
+    python3 "$ATAQUES_DIR/Replay-attack.py" record \
+        --iface vcan0 --out "$REPLAY_LOG_CEN3" --record-time 3 \
+        >>"$MASTER_LOG" 2>&1 || true
+
+    stop_icsim
+    kill "$SENDER_PID" 2>/dev/null || true
+    wait "$SENDER_PID" 2>/dev/null || true
+
+    local n
+    n="$(grep -c '^(' "$REPLAY_LOG_CEN3" 2>/dev/null || echo 0)"
+    log "Captura cen3 concluída: $n frames em $REPLAY_LOG_CEN3"
+    if [[ "$n" -lt 20 ]]; then
+        warn "captura cen3 com $n frames (<20) — fallback intra-rodada será usado."
+        : > "$REPLAY_LOG_CEN3"
+    fi
+}
+
+
 # EXECUÇÃO POR CENÁRIO
 
 run_baseline() {
@@ -467,6 +509,7 @@ main() {
     log "============================================================"
 
     ensure_replay_capture
+    ensure_replay_capture_cen3
 
     for s in $SCENARIOS; do
         case "$s" in

@@ -41,13 +41,12 @@ COLORS_LATENCY = {
     "cen3/secoc_total":   "#7f7f7f",
 }
 
-# Labels com asterisco para footnote (usado em plot_absolute).
 ATTACK_LABELS = {
     "dos-py":     "DoS (Python)",
     "dos-cangen": "DoS (cangen)",
     "fuzzing":    "Fuzzing",
     "spoofing":   "Spoofing",
-    "replay":     "Replay$^{*}$",
+    "replay":     "Replay",
 }
 
 # Labels sem asterisco (usado em plot_latency).

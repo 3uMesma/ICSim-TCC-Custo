@@ -119,34 +119,43 @@ case "$ATTACK" in
         ;;
 
     replay)
-        # Para o Cenário 3, capturamos justamente os quadros *autenticados*
-        # produzidos pelo sender em vcan0. O replay desses quadros
-        # autenticados deveria falhar por Freshness Value — exatamente a
-        # defesa que o SecOC adiciona sobre o Cenário 2.
-        CAP="$RESULTS/capture.log"
-        echo "[replay] fase 1/2: gravando 3 s de vcan0 (frames autenticados)..." \
-            | tee -a "$RESULTS/attack.log"
-        python3 "$ATAQUES/Replay-attack.py" record \
-            --iface vcan0 --out "$CAP" --record-time 3 \
-            >>"$RESULTS/attack.log" 2>&1 || true
-
-        captured_count=0
-        [[ -f "$CAP" ]] && captured_count="$(grep -c '^(' "$CAP" || true)"
-        if [[ "$captured_count" -lt 5 ]]; then
-            FALLBACK="$HERE/../captura.log"
-            if [[ -r "$FALLBACK" ]]; then
-                echo "[replay] captura com $captured_count frames (insuficiente) — usando $FALLBACK (sem MAC)" \
-                    | tee -a "$RESULTS/attack.log"
-                sed 's/) can0 /) vcan0 /' "$FALLBACK" > "$CAP"
-            else
-                cleanup_and_die "captura vazia e captura.log indisponível" 5
-            fi
-        else
-            echo "[replay] captura OK ($captured_count frames autenticados)" \
+        # Para o Cenário 3, o replay precisa de frames *autenticados*
+        # (com MAC + FV) — o SecOC os rejeitará por Freshness Value.
+        #
+        # A captura é compartilhada feita uma vez. Isso alinha a janela do perf com 
+        # a janela do gateway — sem isso o cycles/frame do replay fica enviesado e 
+        # cai em NORMALIZE_EXCLUDE.
+        CAP="${REPLAY_LOG_CEN3:-}"
+        if [[ -n "$CAP" && -s "$CAP" ]]; then
+            n_frames="$(grep -c '^(' "$CAP" 2>/dev/null || echo 0)"
+            echo "[replay] usando captura cen3 compartilhada: $CAP ($n_frames frames)" \
                 | tee -a "$RESULTS/attack.log"
+        else
+            CAP="$RESULTS/capture.log"
+            echo "[replay] sem REPLAY_LOG_CEN3 — fallback: gravando 3 s intra-rodada" \
+                | tee -a "$RESULTS/attack.log"
+            python3 "$ATAQUES/Replay-attack.py" record \
+                --iface vcan0 --out "$CAP" --record-time 3 \
+                >>"$RESULTS/attack.log" 2>&1 || true
+
+            captured_count=0
+            [[ -f "$CAP" ]] && captured_count="$(grep -c '^(' "$CAP" || true)"
+            if [[ "$captured_count" -lt 5 ]]; then
+                FALLBACK="$HERE/../captura.log"
+                if [[ -r "$FALLBACK" ]]; then
+                    echo "[replay] captura com $captured_count frames (insuficiente) — usando $FALLBACK (sem MAC)" \
+                        | tee -a "$RESULTS/attack.log"
+                    sed 's/) can0 /) vcan0 /' "$FALLBACK" > "$CAP"
+                else
+                    cleanup_and_die "captura vazia e captura.log indisponível" 5
+                fi
+            else
+                echo "[replay] captura OK ($captured_count frames autenticados)" \
+                    | tee -a "$RESULTS/attack.log"
+            fi
         fi
 
-        echo "[replay] fase 2/2: re-injetando por ${DURATION}s (speedup=10x)..." \
+        echo "[replay] re-injetando por ${DURATION}s (speedup=10x)..." \
             | tee -a "$RESULTS/attack.log"
         python3 "$ATAQUES/Replay-attack.py" replay \
             --iface vcan0 --in "$CAP" --speedup 10 --loops 99999 \

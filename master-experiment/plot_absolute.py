@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt  # noqa: E402 — após lib.plotting
 
 apply_rcparams()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.constants import ATTACK_ORDER
+from lib.constants import ATTACK_ORDER, NORMALIZE_EXCLUDE
 SCENARIO_ORDER = ["cen2/gateway", "cen3/gateway", "cen3/sender", "cen3/total"]
 
 
@@ -87,10 +87,12 @@ def fig_taskclock(absolute: pd.DataFrame, out_dir: Path) -> None:
                       "(task-clock, μ ± IC$_{95}$, n=20)",
                 attack_order=ATTACK_ORDER,
                 sc_order=SCENARIO_ORDER, log=True)
-    ax.text(0.01, -0.18,
-            "$^{*}$ replay: gateway permanece ativo $>$30 s "
-            "(captura+replay), enquanto perf mede 30 s.",
-            transform=ax.transAxes, fontsize=8, color="#555555")
+    # para garantir que não tenha erro com o replay antigo
+    if "replay" in NORMALIZE_EXCLUDE:
+        ax.text(0.01, -0.18,
+                "$^{*}$ replay: gateway permanece ativo $>$30 s "
+                "(captura+replay), enquanto perf mede 30 s.",
+                transform=ax.transAxes, fontsize=8, color="#555555")
     plt.tight_layout()
     fig.savefig(out_dir / "fig_taskclock.png")
     fig.savefig(out_dir / "fig_taskclock.pdf")
@@ -100,16 +102,16 @@ def fig_taskclock(absolute: pd.DataFrame, out_dir: Path) -> None:
 # Figura 2: cycles/frame normalizado — APENAS gateways (cen2 vs cen3)
 # O sender é deliberadamente excluído desta figura: ele autentica um número
 # constante de frames legítimos (~2100 / 30 s) independentemente do ataque,
-# então normalizá-lo pelo `rx_total` do gateway (que varia 100× entre
+# então normalizá-lo pelo rx_total do gateway (que varia 100× entre
 # DoS e fuzzing) produz números enganosos. O custo absoluto do sender é
 # exposto na figura de decomposição (fig_cen3_decomposition).
 def fig_cycles_per_frame(norm: pd.DataFrame, out_dir: Path) -> None:
     df = norm[(norm.metric == "cycles")
-              & (norm.attack != "replay")
+              & (~norm.attack.isin(NORMALIZE_EXCLUDE))
               & (norm.component == "gateway")].copy()
     if df.empty:
         return
-    attacks = [a for a in ATTACK_ORDER if a != "replay"]
+    attacks = [a for a in ATTACK_ORDER if a not in NORMALIZE_EXCLUDE]
     sc_order = ["cen2/gateway", "cen3/gateway"]
     fig, ax = plt.subplots(figsize=(8.5, 4.6))
     grouped_bar(ax, df, ylabel="Ciclos por frame recebido (cycles/frame)",
@@ -131,8 +133,11 @@ def fig_cycles_per_frame(norm: pd.DataFrame, out_dir: Path) -> None:
                 ha="center", va="bottom", fontsize=9,
                 color="#444444", fontweight="bold")
 
-    ax.text(0.99, -0.18,
-            "Razão cen3/cen2 acima de cada par. Replay omitido (caveat de janela).",
+    footnote = "Razão cen3/cen2 acima de cada par."
+    if NORMALIZE_EXCLUDE:
+        excl = ", ".join(sorted(NORMALIZE_EXCLUDE))
+        footnote += f" Omitidos por caveat de janela: {excl}."
+    ax.text(0.99, -0.18, footnote,
             transform=ax.transAxes, fontsize=8, color="#555555",
             ha="right")
     plt.tight_layout()

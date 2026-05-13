@@ -101,9 +101,11 @@ case "$ATTACK" in
         [[ -r "$SCRIPT" ]] || cleanup_and_die "não achei $SCRIPT"
         echo "[info] usando $SCRIPT"
 
-        # Usa a captura compartilhada da campanha (vinda de master_run_sw.sh
-        # via env var REPLAY_LOG)
-        CAP="${REPLAY_LOG:-}"
+        # Usa REPLAY_LOG_CEN3 (frames aytenticados capturadsos pelo master_run_sw)
+        CAP="${REPLAY_LOG_CEN3:-}"
+        if [[ -z "$CAP" || ! -s "$CAP" ]]; then
+            CAP="${REPLAY_LOG:-}"
+        fi
         if [[ -z "$CAP" || ! -s "$CAP" ]]; then
             # Fallback: grava na própria rodada
             CAP="$RESULTS/capture.log"
