@@ -1,7 +1,7 @@
 # Executa a bateria completa de testes do experimento em um único fluxo:
 #
 #   3 cenários × 5 ataques × N repetições × DURATION s
-#     ├── baseline     (sem segurança)              → cenario1-baseline/run_experiments.sh
+#     ├── baseline     (sem segurança)              → cenario1-baseline/run_scenario1.sh
 #     ├── cenário 2    (Firewall/Allowlist)         → cenario2-firewall/run_scenario2.sh
 #     └── cenário 3    (SecOC simplificado)         → cenario3-secoc/run_scenario3.sh
 #
@@ -101,8 +101,8 @@ check_prereqs() {
     command -v candump >/dev/null 2>&1 || missing+=("candump (can-utils)")
     [[ ${#missing[@]} -eq 0 ]] || die "dependências ausentes: ${missing[*]}"
 
-    [[ -x "$CEN1_DIR/run_experiments.sh" ]] \
-        || die "$CEN1_DIR/run_experiments.sh não é executável"
+    [[ -x "$CEN1_DIR/run_scenario1.sh" ]] \
+        || die "$CEN1_DIR/run_scenario1.sh não é executável"
     [[ -x "$CEN2_DIR/run_scenario2.sh" ]] \
         || die "$CEN2_DIR/run_scenario2.sh não é executável"
     [[ -x "$CEN3_DIR/run_scenario3.sh" ]] \
@@ -270,7 +270,7 @@ ensure_replay_capture() {
         else
             log "Reutilizando captura existente: $REPLAY_LOG"
         fi
-        # O run_experiments.sh espera o arquivo em ataques/captura_replay.log.
+        # O run_scenario1.sh espera o arquivo em ataques/captura_replay.log.
         ln -sfn "$REPLAY_LOG" "$ATAQUES_DIR/captura_replay.log"
     fi
 }
@@ -329,7 +329,7 @@ run_baseline() {
 
     start_icsim_for baseline
 
-    "$CEN1_DIR/run_experiments.sh" \
+    "$CEN1_DIR/run_scenario1.sh" \
         -i vcan0 \
         -d "$DURATION" \
         -n "$REPS" \

@@ -1,8 +1,8 @@
-# Este script é o IRMÃO do `run_experiments.sh` para a campanha system-wide.
+# Este script é o IRMÃO do `run_scenario1.sh` para a campanha system-wide.
 # A ÚNICA mudança experimental é COMO o `perf` é invocado:
 #
-#   run_experiments.sh    →  perf stat -p $ATTACK_PID  (mede só o atacante)
-#   run_experiments_sw.sh →  perf stat -a              (mede o sistema todo)
+#   run_scenario1.sh    →  perf stat -p $ATTACK_PID  (mede só o atacante)
+#   run_scenario1_sw.sh →  perf stat -a              (mede o sistema todo)
 
 set -euo pipefail
 

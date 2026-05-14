@@ -3,7 +3,7 @@
 # trap de limpeza, parsing de argumentos) é IDÊNTICA. As únicas mudanças:
 #
 #   1. Chama os sub-scripts SYSTEM-WIDE:
-#        ataques/run_experiments_sw.sh
+#        cenario1-baseline/run_scenario1_sw.sh
 #        cenario2-firewall/run_scenario2_sw.sh
 #        cenario3-secoc/run_scenario3_sw.sh
 #
@@ -111,8 +111,8 @@ check_prereqs() {
     command -v candump >/dev/null 2>&1 || missing+=("candump (can-utils)")
     [[ ${#missing[@]} -eq 0 ]] || die "dependências ausentes: ${missing[*]}"
 
-    [[ -x "$CEN1_DIR/run_experiments_sw.sh" ]] \
-        || die "$CEN1_DIR/run_experiments_sw.sh não é executável"
+    [[ -x "$CEN1_DIR/run_scenario1_sw.sh" ]] \
+        || die "$CEN1_DIR/run_scenario1_sw.sh não é executável"
     [[ -x "$CEN2_DIR/run_scenario2_sw.sh" ]] \
         || die "$CEN2_DIR/run_scenario2_sw.sh não é executável"
     [[ -x "$CEN3_DIR/run_scenario3_sw.sh" ]] \
@@ -329,7 +329,7 @@ run_baseline() {
 
     start_icsim_for baseline
 
-    "$CEN1_DIR/run_experiments_sw.sh" \
+    "$CEN1_DIR/run_scenario1_sw.sh" \
         -i vcan0 -d "$DURATION" -n "$REPS" -c "$COOLDOWN" \
         -a "${ATTACKS// /,}" \
         2>&1 | tee -a "$MASTER_LOG"
