@@ -93,7 +93,7 @@ static void print_usage(const char *prog) {
         "  -o <iface>   interface de saída  (default: vcan1)\n"
         "  --no-dlc     desabilita validação de DLC (estudo ablativo)\n"
         "  --no-rate    desabilita rate-limiting   (estudo ablativo)\n"
-        "  -v           verboso (loga cada frame — NÃO usar durante perf!)\n"
+        "  -v           verboso (loga cada frame — NÃO usar durante perf!)\n",
         prog);
 }
 
