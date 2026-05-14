@@ -1,109 +1,197 @@
-Instrument Cluster Simulator for SocketCAN
-------------------------------------------
+# ICSim-TCC-Custo 
+**Título do projeto de TCC:** *Análise do Custo Computacional de Mecanismos de Segurança em Redes CAN*.  
+**Vínculo acadêmico:** Trabalho de Conclusão de Curso em Ciência da Computação (USP), sob orientação da professora Kalinka Castelo Branco (ICMC - USP).  
+**Resumo do artigo/projeto:** com a transição para arquiteturas zonais e o uso de Security Gateways em veículos modernos, este trabalho investiga o trade-off entre proteção cibernética e latência em sistemas embarcados críticos. Este projeto é um fork do [ICSim de Craig Smith](https://github.com/zombieCraig/ICSim), o que permitiu focar na análise de segurança sem a necessidade de construir um simulador CAN do zero. O trabalho compara três cenários (`baseline`, `cen2/firewall`, `cen3/secoc`) sob cinco ataques (`dos-py`, `dos-cangen`, `fuzzing`, `replay`, `spoofing`), utilizando `perf` para quantificar overhead de processamento e impacto no tempo de resposta.
 
-By: OpenGarages <agent.craig@gmail.com>
+# Estrutura do readme.md
+Este README foi adaptado com base no modelo de avaliação de artefatos do SBRC (CTA) e cobre seguintes requisitos:
 
-Compiling
----------
-You will need:
-* SDL2
-* SDL2_Image
-* can-utils
+1. Informações Básicas
+2. Dependências do projeto.
+3. Considerações de Segurança.
+3. Instalação.
+4. Teste mínimo.
+5. Reprodução de experimentos (com reivindicações em subseções).
+6. Licença.
 
-You can get can-utils from github or on Ubuntu you may run the following
+# Informações Básicas
+- **Objetivo científico do artefato:** quantificar o custo de CPU e latência introduzido por mecanismos de segurança em CAN.
+- **Pergunta de pesquisa:** qual é o impacto computacional de mecanismos de defesa (firewall e SecOC simplificado) quando submetidos a ataques de estresse em rede CAN simulada?
+- **Cenários avaliados:**
+  - `baseline`: sem segurança (referência).
+  - `cen2`: firewall/allowlist no gateway.
+  - `cen3`: SecOC simplificado (autenticação + freshness).
+- **Ataques avaliados:** `dos-py`, `dos-cangen`, `fuzzing`, `replay`, `spoofing`.
+- **Modos de medição:**
+  - **Process-attached** (`master_run.sh`): `perf stat` anexado aos processos-alvo.
+  - **System-wide** (`master_run_sw.sh`): `perf stat -a` no sistema todo.
+- **Ambiente de execução esperado:** Linux com SocketCAN (`vcan`) e permissões `sudo/root`.
 
-```
-  sudo apt-get install libsdl2-dev libsdl2-image-dev can-utils  
-```
+# Dependências e Segurança
+## Dependências de sistema
+Exemplo (Arch Linux):
 
-With dependencies installed, you may use the [Meson build system](https://mesonbuild.com/) to build the project:
-
-```
-  meson setup builddir && cd builddir
-  meson compile
-```
-
-Testing on a virtual CAN interface
-----------------------------------
-You can run the following commands to setup a virtual can interface
-
-```
-  sudo modprobe can
-  sudo modprobe vcan
-  sudo ip link add dev vcan0 type vcan
-  sudo ip link set up vcan0
-```
-
-If you type ifconfig vcan0 you should see a vcan0 interface. A setup_vcan.sh file has also been provided with this
-repo.
-
-Usage
------
-Default operations:
-
-Start the Instrument Cluster (IC) simulator:
-
-```
-  ./icsim vcan0
+```bash
+sudo pacman -Syu
+sudo pacman -S --needed \
+  base-devel clang \
+  sdl2 sdl2_image \
+  can-utils iproute2 kmod \
+  perf \
+  python python-pip bc
 ```
 
-Then startup the controls
-
-```
-  ./controls vcan0
-```
-
-The hard coded defaults should be in sync and the controls should control the IC.  Ideally use a controller similar to
-an XBox controller to interact with the controls interface.  The controls app will generate corrosponding CAN packets
-based on the buttons you press.  The IC Sim sniffs the CAN and looks for relevant CAN packets that would change the
-display.
-
-Troubleshooting
----------------
-* If you get an error about canplayer then you may not have can-utils properly installed and in your path.
-* If the controller does not seem to be responding make sure the controls window is selected and active
-
-## lib.o not linking
-If lib.o doesn't link it's probably because it's the wrong arch for your platform.  To fix this you will
-want to compile can-utils and copy the newly compiled lib.o to the icsim directory.  You can get can-utils
-from: https://github.com/linux-can/can-utils
-
-## read: Bad address
-When running `./icsim vcan0` you end up getting a `read: Bad Address` message,
-this is typically a result of needing to recompile with updated SDL libraries.
-Make sure you have the recommended latest SDL2 libraries.  Some users have
-reported fixing this problem by creating symlinks to the SDL.h files manually
-or you could edit the Makefile and change the CFLAGS to point to wherever your
-distro installs the SDL.h header, ie: /usr/include/x86_64-linux-gnu/SDL2
-
-There was also a report that on Arch linux needed sdl2_gfx library.
-
-CAN Hacking Training Usage
---------------------------
-To *safely* train on CAN hacking you can play back a sample recording included in this repo of generic CAN traffic.  This will
-create something similar to normal CAN "noise".  Then start the IC Sim with the -r (randomize) switch.
-
-```
-  ./icsim -r vcan0
-  Using CAN interface vcan0
-  Seed: 1401717026
+## Dependências Python
+```bash
+python3 -m pip install --upgrade pip
+python3 -m pip install python-can pandas numpy matplotlib
 ```
 
-Now copy the seed number and paste it as the -s (seed) option for the controls.
+## Ferramentas Principais
+- `gcc`, `make` → compilador C e ferramenta de build; necessários para compilar o código do ICSim
+- `perf` → ferramenta do kernel Linux para medir performance e overhead de CPU
+- `python-can` → biblioteca Python para comunicação com redes CAN; usada nos scripts de ataque (`dos-py`, `replay`, etc.)
+- `candump`/`cangen` (pacote `can-utils`) → utilitários CLI do pacote `can-utils`; `cangen` gera tráfego CAN (usado no ataque `dos-cangen`) e `candump` captura pacotes na interface
+- módulos de kernel: `can` e `vcan` → `can` é o driver base do protocolo CAN no Linux; `vcan` cria uma interface CAN virtual, que é o que permite simular a rede sem hardware físico
 
+# Considerações de Segurança
+1. **Execução com privilégios:** os scripts de experimento usam `sudo` para `perf`, `modprobe` e `ip link`.
+2. **Tráfego agressivo de ataques:** DoS/Fuzzing/Spoofing geram alta taxa de frames.
+3. **Interfaces CAN:** os experimentos são desenhados para `vcan*` (virtual), não para barramentos físicos. 
+4. **Remoção de logs:** alvos como `clean-logs` removem diretórios de resultados.
+
+# Instalação
+## 1) Clonar o repositório
+```bash
+git clone https://github.com/3uMesma/ICSim-TCC-Custo.git
+cd ICSim-TCC-Custo
 ```
-  ./controls -s 1401717026 vcan0
+
+## 2) Compilar ICSim base
+```bash
+make all
 ```
 
-This will randomize what CAN packets the IC needs and by passing the seed to the controls they will sync.  Randomizing
-changes the arbitration IDs as well as the byte position of the packets used.  This will give you experience in hunting down
-different types of CAN packets on the CAN Bus.
-
-For the most realistic training you can change the difficulty levels.  Set the difficulty to 2 with the controls:
-
-```
-  ./controls -s 1401717026 -l 2 vcan0
+## 3) Compilar cenários experimentais
+```bash
+make -f experiments.mk cen-all
 ```
 
-This will add additional randomization to the target packets, simulating other data stored in the same arbitration id.
+Opcional (compilar tudo de uma vez):
+```bash
+make -f experiments.mk all-with-base
+```
+
+## 4) (Opcional) Testar implementação criptográfica do SecOC
+```bash
+cd scenario3-secoc
+make test
+cd ..
+```
+
+## 5) Subir interfaces virtuais CAN
+Para baseline simples:
+```bash
+sudo ./setup_vcan.sh
+```
+
+Para cenários com gateway/SecOC, os scripts específicos também podem preparar interfaces:
+- `scenario2-firewall/setup_vcan_dual.sh`
+- `scenario3-secoc/setup_vcan_triple.sh`
+
+# Teste mínimo
+Objetivo: confirmar que o artefato compila e executa funcionalidade observável.
+
+## Passo a passo
+1. Em um terminal:
+```bash
+./icsim vcan0
+```
+2. Em outro terminal:
+```bash
+./controls vcan0
+```
+3. Em um terceiro terminal, execute um ataque curto:
+```bash
+python3 scripts-attacks/DoS-attack.py --iface vcan0 --duration 5 --rate 0
+```
+
+Resultado esperado:
+- janela do `icsim` ativa;
+- saída do ataque com linha `[RESULTADO] ...`;
+- tráfego CAN visível em `candump vcan0` (se monitorado).
+
+## Teste mínimo automatizado (cenário 2, 1 rodada curta)
+```bash
+sudo ./scenario2-firewall/run_scenario2.sh idle 5
+```
+Resultado esperado:
+- criação de pasta em `scenario2-firewall/results/`;
+- `gateway.log` e `perf_gateway.raw` gerados;
+- mensagem final `[ok] experiment concluído`.
+
+# Experimentos
+Esta seção descreve como reproduzir as principais reivindicações do artigo.
+
+## Configuração padrão dos experimentos
+- Ataques: `dos-py dos-cangen fuzzing replay spoofing`
+- Duração por rodada: `30s`
+- Repetições:
+  - Process-attached: `20`
+  - System-wide: `10`
+- Cooldown: `5s`
+
+Tempo bruto aproximado:
+- Process-attached: `3 cenários × 5 ataques × 20 reps × (30+5)s ≈ 2.9h` (+ overhead de setup/pós-processamento)
+- System-wide: `3 cenários × 5 ataques × 10 reps × (30+5)s ≈ 1.5h` (+ overhead de setup/pós-processamento)
+
+## Reivindicação #1
+**(Custo computacional absoluto da camada de segurança: baseline vs firewall vs SecOC)**  
+Reproduz tabelas e figuras de custo por `cycles`, `instructions`, `task-clock` no modo process-attached.
+
+### Comando de execução
+```bash
+sudo ./master-experiment/master_run.sh \
+  -n 20 -d 30 -c 5 \
+  -s baseline,cen2,cen3 \
+  -a dos-py,dos-cangen,fuzzing,replay,spoofing
+```
+
+### Arquivos de saída esperados
+Em `master-experiment/master_results/<TIMESTAMP>/`:
+- `perf_data.csv`
+- `summary_all.csv`
+- `absolute_cost.csv`
+- `normalized_cost.csv`
+- `figuras/` (geradas no pós-processamento)
+
+### Expectativa de resultado
+- `cen2` e `cen3` com custo maior que `baseline`;
+- `cen3/total` (gateway + sender) acima de `cen2/gateway` para métricas de custo absoluto.
+
+## Reivindicação #2
+**(Overhead system-wide e latência de encaminhamento)**  
+Reproduz overhead global e latência/jitter no modo `perf stat -a`.
+
+### Comando de execução
+```bash
+sudo ./master-experiment/master_run_sw.sh \
+  -n 10 -d 30 -c 5 \
+  -s baseline,cen2,cen3 \
+  -a dos-py,dos-cangen,fuzzing,replay,spoofing
+```
+
+### Arquivos de saída esperados
+Em `master-experiment/resultados-sw/<TIMESTAMP>/`:
+- `perf_data.csv`
+- `overhead_sw.csv` e `overhead_sw.tex`
+- `latency_summary.csv`, `jitter_summary.csv`
+- `figuras-lat/` com boxplot, CDF e p99
+
+### Expectativa de resultado
+- overhead de `cen3` acima de `cen2` para parte dos ataques;
+- latência `secoc_total` superior à latência `firewall` em cenários equivalentes de carga.
+
+# LICENSE
+Este projeto está licenciado sob **GPL-3.0** (ver arquivo `LICENSE`).
 
