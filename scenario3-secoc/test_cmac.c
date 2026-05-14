@@ -12,6 +12,7 @@
  */
 
 #include "secoc.h"
+#include "can_ids.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -133,7 +134,7 @@ int main(void)
     secoc_init(SECOC_DEMO_KEY);
 
     struct can_frame plain = {0};
-    plain.can_id  = 0x244;
+    plain.can_id  = CAN_ID_SPEED;
     plain.can_dlc = 5;
     uint8_t p[5] = {0x10, 0x20, 0x30, 0x40, 0x50};
     memcpy(plain.data, p, 5);

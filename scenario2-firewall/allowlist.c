@@ -18,13 +18,14 @@
 
 
 #include "allowlist.h"
+#include "can_ids.h"
 
 #include <stddef.h>
 #include <stdio.h>
 
 policy_rule_t g_allowlist[ALLOWLIST_MAX_ENTRIES] = {
     {
-        .can_id         = 0x244,
+        .can_id         = CAN_ID_SPEED,
         .expected_dlc   = 5,
         .min_period_us  = 8000,       /* ~125 Hz teto; ICSim envia a ~100 Hz */
         .name           = "SPEED",
@@ -33,7 +34,7 @@ policy_rule_t g_allowlist[ALLOWLIST_MAX_ENTRIES] = {
         .drop_count     = 0,
     },
     {
-        .can_id         = 0x188,
+        .can_id         = CAN_ID_SIGNAL,
         .expected_dlc   = 3,
         .min_period_us  = 400000,     /* ICSim envia a cada ~500 ms */
         .name           = "TURN_SIGNAL",
@@ -42,7 +43,7 @@ policy_rule_t g_allowlist[ALLOWLIST_MAX_ENTRIES] = {
         .drop_count     = 0,
     },
     {
-        .can_id         = 0x19B,
+        .can_id         = CAN_ID_DOORS,
         .expected_dlc   = 3,
         .min_period_us  = 50000,      /* evento esporádico; tolera 20 Hz */
         .name           = "DOORS",

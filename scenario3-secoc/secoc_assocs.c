@@ -10,12 +10,13 @@
  */
 
 #include "secoc.h"
+#include "can_ids.h"
 
 #include <stddef.h>
 
 secoc_assoc_t g_secoc_assocs[SECOC_MAX_ASSOCS] = {
     {
-        .data_id            = 0x244,
+        .data_id            = CAN_ID_SPEED,
         .expected_plain_len = 5,      /* SPEED: 5 bytes úteis no ICSim */
         .name               = "SPEED",
         .fv_tx              = 0,
@@ -27,7 +28,7 @@ secoc_assoc_t g_secoc_assocs[SECOC_MAX_ASSOCS] = {
         .rej_len            = 0,
     },
     {
-        .data_id            = 0x188,
+        .data_id            = CAN_ID_SIGNAL,
         .expected_plain_len = 3,      /* TURN_SIGNAL: 3 bytes úteis */
         .name               = "TURN_SIGNAL",
         .fv_tx              = 0,
@@ -39,7 +40,7 @@ secoc_assoc_t g_secoc_assocs[SECOC_MAX_ASSOCS] = {
         .rej_len            = 0,
     },
     {
-        .data_id            = 0x19B,
+        .data_id            = CAN_ID_DOORS,
         .expected_plain_len = 3,      /* DOORS: 3 bytes úteis */
         .name               = "DOORS",
         .fv_tx              = 0,
