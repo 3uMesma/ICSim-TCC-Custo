@@ -6,12 +6,13 @@
 # Estrutura do readme.md
 Este README foi adaptado com base no modelo de avaliação de artefatos do SBRC (CTA) e cobre seguintes requisitos:
 
-1. Informações Básicas
+1. Informações Básicas.
+2. Estrutura do Repositório.
 2. Dependências do projeto.
-3. Considerações de Segurança.
-3. Instalação.
-4. Teste mínimo.
-5. Reprodução de experimentos (com reivindicações em subseções).
+4. Considerações de Segurança.
+5. Instalação.
+6. Teste mínimo.
+5. Experimentos (com reivindicações em subseções).
 6. Licença.
 
 # Informações Básicas
@@ -27,7 +28,48 @@ Este README foi adaptado com base no modelo de avaliação de artefatos do SBRC 
   - **System-wide** (`master_run_sw.sh`): `perf stat -a` no sistema todo.
 - **Ambiente de execução esperado:** Linux com SocketCAN (`vcan`) e permissões `sudo/root`.
 
-# Dependências e Segurança
+# Estrutura do Repositório
+O repositório combina o simulador ICSim original do OpenGarages (Craig Smith / "Zombie Craig", licenciado em GPL-3.0) com toda a infraestrutura de cenários de defesa, ataques, captura e análise estatística desenvolvida especificamente para este TCC. A separação abaixo deixa explícito o que veio do upstream e o que foi adicionado neste trabalho.
+
+## Herdado do ICSim original (OpenGarages / Zombie Craig)
+Arquivos preservados do projeto upstream, sem mudanças de comportamento:
+- icsim.c, controls.c — simulador do painel (Instrument Cluster) e aplicativo de envio de comandos via CAN.
+- lib.c, lib.h, lib.o — utilitários CAN derivados do can-utils, usados pelo simulador.
+- Makefile, make.inc, meson.build — build original do simulador.
+- art/ — assets gráficos vetoriais (ic.svg, joypad.ora, joypad.xcf).
+- data/ — sprites, ícones e amostra de tráfego (ic.png, joypad.png, needle.png, spritesheet.png, sample-can.log).
+- setup_vcan.sh — script original para subir a interface vcan0.
+- README-historico.md — README original do ICSim, mantido como referência histórica.
+- LICENSE, .clang-format.
+
+## Adicionado neste TCC
+Todo o restante foi criado a partir do zero sobre o ICSim:
+
+Cenários de medição (C):
+- scenario1-baseline/ — execução de referência, sem proteção. Inclui run_experiments.sh e run_experiments_sw.sh.
+- scenario2-firewall/ — gateway com allowlist (IDs, DLC e taxa de envio): gateway.c, allowlist.c/.h, setup_vcan_dual.sh, run_scenario2.sh, run_scenario2_sw.sh e Makefile próprio.
+- scenario3-secoc/ — SecOC simplificado (AES-CMAC + freshness value) com sender e gateway separados: secoc_sender.c, secoc_gateway.c, secoc.c/.h, secoc_assocs.c, aes.c, cmac.c, test_cmac.c, setup_vcan_triple.sh e scripts run_scenario3*.sh.
+
+Ataques (Python + shell):
+- scripts-attacks/ — DoS-attack.py, Fuzzy-attack.py, Replay-attack.py, Spoofing-attack.py e dos-cangen-attack.sh.
+- scripts-attacks/lib/ — módulos compartilhados entre os ataques (attack_runtime.py, candump_io.py, icsim_frames.py).
+
+Orquestração e análise dos experimentos:
+- master-experiment/master_run.sh, master-experiment/master_run_sw.sh — campanhas process-attached e system-wide.
+- master-experiment/analyze_absolute.py, analyze_all.py, analyze_latency.py, analyze_overhead_sw.py — pós-processamento estatístico.
+- master-experiment/plot_absolute.py, plot_latency.py — geração de figuras.
+- master-experiment/parse_gateway_logs.py, split_baseline_to_raw.py, roda_analise_tudo.sh — utilitários de pipeline.
+- master-experiment/lib/ — biblioteca Python compartilhada da análise (perf_io.py, stats.py, plotting.py, latex.py, constants.py).
+
+Biblioteca compartilhada dos cenários (lib/):
+- lib/can_io.c, lib/can_io.h — captura/escrita CAN em formato canônico, usadas pelos gateways dos cenários 2 e 3.
+- lib/can_capture.sh, lib/probes.sh, lib/perf_csv.sh, lib/log.sh, lib/governor.sh — helpers de coleta com candump/perf e controle do governor de CPU.
+
+Build, configuração e documentação:
+- experiments.mk — alvos cen-all, all-with-base etc. para compilar os cenários sem interferir no Makefile original.
+- README.md — este arquivo, no formato CTA/SBRC.
+
+# Dependências do Projeto
 ## Dependências de sistema
 Exemplo (Arch Linux):
 
