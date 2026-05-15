@@ -40,14 +40,19 @@ from lib.constants import (
 )
 
 
-# Construção da tabela absoluta (cen2 e cen3, com decomposição de cen3)
+# Construção da tabela absoluta (baseline + cen2 + cen3, com decomposição de cen3)
 def build_absolute_table(perf: pd.DataFrame) -> pd.DataFrame:
     """
     Para cada (scenario, component, attack, metric), agrega μ ± IC95.
     Adiciona uma linha sintética 'cen3 / total' = gateway + sender (pareado por run).
+
+    A partir da migração para passthrough no baseline, baseline-passthrough
+    entra como mais um componente medido — todos os três cenários têm
+    perfil funcional comparável ("ler de socket CAN, decidir, escrever em
+    outro socket"), só mudando o que se faz dentro do laço.
     """
-    # cen2 e cen3 (tudo exceto baseline)
-    df = perf[perf.scenario != "baseline"].copy()
+    # Inclui baseline-passthrough, cen2-gateway, cen3-gateway, cen3-sender.
+    df = perf.copy()
     rows = []
     for (sc, comp, atk, met, unit), grp in df.groupby(
         ["scenario", "component", "attack", "metric", "unit"]
@@ -81,23 +86,55 @@ def build_absolute_table(perf: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-# Métricas normalizadas: cycles/frame, instructions/frame, task-clock_ns/frame
+# Métricas normalizadas: cycles/frame, instructions/frame, task-clock_ns/frame.
+#
+# Denominador correto por componente
+# ----------------------------------
+# A normalização "por frame" só faz sentido quando o numerador (cycles do
+# perf) e o denominador (frames processados) descrevem o mesmo objeto. Por
+# isso este script usa um denominador DIFERENTE para cada componente:
+#
+#     baseline/passthrough  →  rx_total do passthrough.log
+#                              (frames lidos em vcan0 pelo forwarder)
+#     cen2/gateway          →  rx_total do gateway.log do cen2
+#                              (frames lidos em vcan0 pelo firewall)
+#     cen3/gateway          →  rx_total do gateway.log do cen3
+#                              (frames lidos em vcan0 pelo SecOC gateway)
+#     cen3/sender           →  read do sender.log
+#                              (frames lidos em vcan_trust pelo SecOC sender)
+#     cen3/total            →  rx_total do gateway.log do cen3
+#                              (carga ofertada à camada de segurança)
 def build_normalized_table(perf: pd.DataFrame, gwlogs: pd.DataFrame) -> pd.DataFrame:
     """
-    Para cada (cenário, ataque, run), pega rx_total do gateway.log e divide
-    cycles/instructions/task-clock pelo número de frames recebidos.
+    Para cada (cenário, ataque, run), divide cycles/instructions/task-clock
+    do componente medido pelo número de frames que ESSE componente
+    efetivamente processou. Ver tabela de denominadores no header do bloco.
 
-    O cen3-total é calculado pareando gateway e sender no mesmo run e dividindo
-    pelo MESMO rx_total (do gateway), pois a "carga ofertada à camada de
-    segurança" é o número de frames que entram no gateway — o sender processa
-    apenas os legítimos.
-
-    Ataques em NORMALIZE_EXCLUDE são pulados (janela perf ≠ janela gateway)
+    Ataques em NORMALIZE_EXCLUDE são pulados (janela perf ≠ janela gateway).
     """
-    # rx_total por (scenario, attack, run, component=gateway)
-    rx = (gwlogs[(gwlogs.metric == "rx_total") & (gwlogs.component == "gateway")]
-          [["scenario", "attack", "run", "value"]]
+    # Denominador por componente.
+    # rx_total: usado por passthrough e gateway (frames lidos em vcan0).
+    rx = (gwlogs[(gwlogs.metric == "rx_total")
+                 & (gwlogs.component.isin({"passthrough", "gateway"}))]
+          [["scenario", "component", "attack", "run", "value"]]
           .rename(columns={"value": "rx_total"}))
+    # read: usado por sender (frames lidos em vcan_trust).
+    sender_read = (gwlogs[(gwlogs.metric == "read")
+                          & (gwlogs.component == "sender")]
+                   [["scenario", "attack", "run", "value"]]
+                   .rename(columns={"value": "sender_read"}))
+
+    def _denominator(scenario: str, component: str) -> pd.DataFrame:
+        """Retorna DataFrame [scenario, attack, run, denom] adequado."""
+        if component == "sender":
+            return (sender_read.assign(component=component)
+                    .rename(columns={"sender_read": "denom"})
+                    [["scenario", "attack", "run", "denom"]])
+        # passthrough ou gateway → rx_total do próprio componente
+        sub = rx[(rx.scenario == scenario) & (rx.component == component)]
+        return sub.rename(columns={"rx_total": "denom"})[
+            ["scenario", "attack", "run", "denom"]
+        ]
 
     rows = []
     for met in ("cycles", "instructions", "task-clock"):
@@ -109,43 +146,112 @@ def build_normalized_table(perf: pd.DataFrame, gwlogs: pd.DataFrame) -> pd.DataF
         else:
             unit_out = f"{met}/frame"
 
-        sub = perf[(perf.metric == met) & (perf.scenario != "baseline")]
+        sub = perf[perf.metric == met]
         if sub.empty:
             continue
 
-        # cen2 + cen3 (gateway, sender) — normalizar por run
+        # Por (cenário, componente): denominador específico do componente.
         for (sc, comp), g in sub.groupby(["scenario", "component"]):
-            merged = g.merge(rx, on=["scenario", "attack", "run"], how="inner")
+            denom = _denominator(sc, comp)
+            if denom.empty:
+                continue
+            merged = g.merge(denom, on=["scenario", "attack", "run"], how="inner")
             if merged.empty:
                 continue
             merged = merged[~merged.attack.isin(NORMALIZE_EXCLUDE)]
-            merged["per_frame"] = merged["value"] * unit_factor / merged["rx_total"]
+            merged = merged[merged["denom"] > 0]
+            if merged.empty:
+                continue
+            merged["per_frame"] = merged["value"] * unit_factor / merged["denom"]
             for atk, gg in merged.groupby("attack"):
                 s = aggregate_stats(gg["per_frame"])
                 rows.append({"scenario": sc, "component": comp, "attack": atk,
                              "metric": met, "unit": unit_out, **s})
 
-        # cen3-total: pareia gateway+sender no mesmo run, divide pelo rx do gateway
+        # cen3-total: pareia gateway+sender no mesmo run, divide pela carga
+        # ofertada à camada (gateway.rx_total).
         c3 = sub[sub.scenario == "cen3"]
         gw = c3[c3.component == "gateway"]
         sd = c3[c3.component == "sender"]
         merged = gw.merge(sd, on=["attack", "run"], suffixes=("_gw", "_sd"))
-        merged = merged.merge(
-            rx[rx.scenario == "cen3"][["attack", "run", "rx_total"]],
-            on=["attack", "run"], how="inner",
-        )
+        c3_rx = rx[(rx.scenario == "cen3") & (rx.component == "gateway")][
+            ["attack", "run", "rx_total"]
+        ]
+        merged = merged.merge(c3_rx, on=["attack", "run"], how="inner")
         merged = merged[~merged.attack.isin(NORMALIZE_EXCLUDE)]
-        merged["per_frame"] = (merged["value_gw"] + merged["value_sd"]) * unit_factor / merged["rx_total"]
-        for atk, gg in merged.groupby("attack"):
-            s = aggregate_stats(gg["per_frame"])
-            rows.append({"scenario": "cen3", "component": "total", "attack": atk,
-                         "metric": met, "unit": unit_out, **s})
+        merged = merged[merged["rx_total"] > 0]
+        if not merged.empty:
+            merged["per_frame"] = (
+                (merged["value_gw"] + merged["value_sd"])
+                * unit_factor / merged["rx_total"]
+            )
+            for atk, gg in merged.groupby("attack"):
+                s = aggregate_stats(gg["per_frame"])
+                rows.append({"scenario": "cen3", "component": "total",
+                             "attack": atk, "metric": met,
+                             "unit": unit_out, **s})
 
     out = pd.DataFrame(rows)
     if out.empty:
         return out
     for c in ("mean", "std", "ci95_half", "ci95_low", "ci95_high", "cv_pct"):
         out[c] = out[c].astype(float).round(4)
+    return out
+
+
+# Custo por autenticação SecOC
+# ----------------------------
+# Métrica dedicada ao cen3/sender: custo de UMA operação de autenticação
+# (AES-CMAC + atualização de FV + write). Numerador = cycles totais do
+# sender no run; denominador = número de frames efetivamente autenticados
+# (campo "authenticated_tx" do sender.log).
+#
+# Diferente de cycles/frame (que divide por TODOS os frames lidos do
+# vcan_trust, incluindo os descartados por ID/LEN), esta métrica isola o
+# trabalho criptográfico de fato realizado.def build_cost_per_auth_table(perf: pd.DataFrame,
+                              gwlogs: pd.DataFrame) -> pd.DataFrame:
+    """Para cen3/sender, calcula cycles, instructions e task-clock divididos
+    por `authenticated_tx` (frames efetivamente autenticados pelo sender).
+    Retorna DataFrame com colunas [attack, metric, unit, n, mean, std,
+    cv_pct, ci95_half, ci95_low, ci95_high].
+    """
+    auth = (gwlogs[(gwlogs.metric == "authenticated_tx")
+                   & (gwlogs.component == "sender")]
+            [["scenario", "attack", "run", "value"]]
+            .rename(columns={"value": "auth_tx"}))
+    if auth.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for met in ("cycles", "instructions", "task-clock"):
+        if met == "task-clock":
+            unit_factor = 1e6
+            unit_out = "ns/auth"
+        else:
+            unit_factor = 1.0
+            unit_out = f"{met}/auth"
+
+        sub = perf[(perf.metric == met) & (perf.scenario == "cen3")
+                   & (perf.component == "sender")]
+        if sub.empty:
+            continue
+        merged = sub.merge(auth, on=["scenario", "attack", "run"], how="inner")
+        merged = merged[~merged.attack.isin(NORMALIZE_EXCLUDE)]
+        merged = merged[merged["auth_tx"] > 0]
+        if merged.empty:
+            continue
+        merged["per_auth"] = merged["value"] * unit_factor / merged["auth_tx"]
+        for atk, gg in merged.groupby("attack"):
+            s = aggregate_stats(gg["per_auth"])
+            rows.append({"scenario": "cen3", "component": "sender",
+                         "attack": atk, "metric": met,
+                         "unit": unit_out, **s})
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    for c in ("mean", "std", "ci95_half", "ci95_low", "ci95_high", "cv_pct"):
+        out[c] = out[c].astype(float).round(3)
     return out
 
 
@@ -252,12 +358,19 @@ def print_absolute(absolute: pd.DataFrame) -> None:
 
 
 def print_normalized(norm: pd.DataFrame) -> None:
-    print_block("CUSTO NORMALIZADO POR FRAME RECEBIDO (μ ± IC95)")
+    print_block("CUSTO NORMALIZADO POR FRAME PROCESSADO (μ ± IC95)")
     if norm.empty:
         print("  (sem dados)")
         return
-    print(f"  Excluídos da normalização (janela perf ≠ janela gateway): "
-          f"{', '.join(sorted(NORMALIZE_EXCLUDE))}")
+    excluded = sorted(NORMALIZE_EXCLUDE)
+    if excluded:
+        print(f"  Excluídos da normalização (janela perf ≠ janela gateway): "
+              f"{', '.join(excluded)}")
+    print("  Denominador por componente:")
+    print("    baseline/passthrough → rx_total do passthrough.log")
+    print("    cen2/gateway, cen3/gateway → rx_total do gateway.log")
+    print("    cen3/sender → read do sender.log (vcan_trust)")
+    print("    cen3/total  → rx_total do gateway.log (carga ofertada à camada)")
     for met in ("cycles", "instructions", "task-clock"):
         sub = norm[norm.metric == met]
         if sub.empty:
@@ -273,8 +386,33 @@ def print_normalized(norm: pd.DataFrame) -> None:
             print(f"  • {atk}")
             for _, r in ssub.iterrows():
                 key = f"{r['scenario']}/{r['component']}"
-                print(f"      [{key:>14}]  μ = {r['mean']:>10.4f}  "
+                print(f"      [{key:>22}]  μ = {r['mean']:>10.4f}  "
                       f"± {r['ci95_half']:>8.4f}  "
+                      f"(CV = {r['cv_pct']:>5.1f}%, n = {int(r['n'])})  {unit}")
+
+
+def print_cost_per_auth(cpa: pd.DataFrame) -> None:
+    print_block("CUSTO POR AUTENTICAÇÃO SecOC (cen3/sender, μ ± IC95)")
+    if cpa.empty:
+        print("  (sem dados — verifique se há authenticated_tx em gateway_logs.csv)")
+        return
+    print("  Denominador: authenticated_tx do sender.log")
+    print("  Isola o custo unitário de uma operação SecOC (AES-CMAC + FV + write).")
+    for met in ("cycles", "instructions", "task-clock"):
+        sub = cpa[cpa.metric == met]
+        if sub.empty:
+            continue
+        unit = sub["unit"].iloc[0]
+        print(f"\n--- {met} → {unit} ---")
+        for atk in ATTACK_ORDER:
+            if atk in NORMALIZE_EXCLUDE:
+                continue
+            ssub = sub[sub.attack == atk]
+            if ssub.empty:
+                continue
+            for _, r in ssub.iterrows():
+                print(f"  • {atk:>11}  μ = {r['mean']:>12,.1f}  "
+                      f"± {r['ci95_half']:>10,.1f}  "
                       f"(CV = {r['cv_pct']:>5.1f}%, n = {int(r['n'])})  {unit}")
 
 
@@ -366,21 +504,58 @@ def main() -> int:
     if excluded:
         excl_note = (" Ataques omitidos por incompatibilidade entre janela do "
                      f"\\texttt{{perf}} e do gateway: {', '.join(excluded)}.")
+    norm_caption_note = (
+        " Denominador é específico por componente: passthrough e gateway "
+        "dividem pelo \\texttt{rx\\_total} do próprio binário; o sender "
+        "divide pelos frames lidos em \\texttt{vcan\\_trust}; cen3/total "
+        "divide pelo \\texttt{rx\\_total} do gateway (carga ofertada à "
+        "camada de segurança).")
     write_latex(
         to_wide_absolute(normalized, "cycles", scale=1.0, decimals=1, latex=True),
         master / "normalized_cost_cycles.tex",
-        caption=("Custo normalizado da camada de segurança em ciclos por frame "
-                 "recebido pelo gateway (média $\\pm$ IC$_{95}$, n=20)." +
-                 excl_note),
+        caption=("Custo normalizado da camada de segurança em ciclos por "
+                 "frame processado pelo componente (média $\\pm$ IC$_{95}$, "
+                 "n=20)." + norm_caption_note + excl_note),
         label="tab:norm-cycles",
     )
     write_latex(
         to_wide_absolute(normalized, "instructions", scale=1.0, decimals=1, latex=True),
         master / "normalized_cost_instructions.tex",
-        caption=("Instruções por frame recebido pelo gateway "
-                 "(média $\\pm$ IC$_{95}$, n=20)." + excl_note),
+        caption=("Instruções por frame processado pelo componente "
+                 "(média $\\pm$ IC$_{95}$, n=20)." +
+                 norm_caption_note + excl_note),
         label="tab:norm-instructions",
     )
+
+    # ---- Custo por autenticação SecOC (cen3/sender) ----
+    cost_auth = build_cost_per_auth_table(perf, gw)
+    if not cost_auth.empty:
+        cpa_csv = master / "cost_per_auth.csv"
+        cost_auth.to_csv(cpa_csv, index=False)
+        print(f"\n  ✓ cost_per_auth.csv   ({len(cost_auth):,} linhas) → {cpa_csv}")
+
+        # Tabela wide (1 coluna: cen3/sender) — usamos to_wide_absolute,
+        # ele já lida bem com um único par (cenário, componente).
+        write_latex(
+            to_wide_absolute(cost_auth, "cycles", scale=1e3, decimals=1, latex=True),
+            master / "cost_per_auth_cycles.tex",
+            caption=("Custo computacional por autenticação SecOC: ciclos de "
+                     "CPU por frame efetivamente autenticado pelo sender "
+                     "($\\times 10^{3}$, média $\\pm$ IC$_{95}$, n=20). "
+                     "Denominador: \\texttt{authenticated\\_tx} do "
+                     "\\texttt{sender.log}. Isola o custo unitário do "
+                     "AES-CMAC + atualização de FV + escrita do frame "
+                     "protegido."),
+            label="tab:cost-per-auth-cycles",
+        )
+        write_latex(
+            to_wide_absolute(cost_auth, "instructions", scale=1e3, decimals=1, latex=True),
+            master / "cost_per_auth_instructions.tex",
+            caption=("Instruções executadas por autenticação SecOC "
+                     "($\\times 10^{3}$, média $\\pm$ IC$_{95}$, n=20)."),
+            label="tab:cost-per-auth-instructions",
+        )
+        print(f"  ✓ cost_per_auth_{{cycles,instructions}}.tex")
 
     # ---- Throughput / contadores brutos ----
     tp = build_throughput_summary(gw)
@@ -431,11 +606,16 @@ def main() -> int:
     # ---- Saída humana ----
     print_absolute(absolute)
     print_normalized(normalized)
+    if not cost_auth.empty:
+        print_cost_per_auth(cost_auth)
 
     print()
     print("Próximos passos:")
     print(f"  - Inspecione absolute_cost_wide.csv (legível em qualquer editor).")
     print(f"  - \\input{{absolute_cost_cycles.tex}} no capítulo de Resultados.")
+    if not cost_auth.empty:
+        print(f"  - \\input{{cost_per_auth_cycles.tex}} para reportar o custo "
+              f"unitário do SecOC.")
     print(f"  - Para gráficos: rode plot_absolute.py (próxima etapa).")
     return 0
 

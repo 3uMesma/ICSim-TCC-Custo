@@ -25,6 +25,19 @@ PATTERNS_GATEWAY_CEN2 = {
     "throughput_fps":   rf"Throughput médio do gateway\s+\.+\s+{_NUM}\s*frames/s",
 }
 
+# Passthrough do baseline emite o mesmo formato do gateway cen2 (com todos
+# os blocked_* zerados, porque não aplica nenhuma política). Mantemos um
+# PATTERNS dedicado para clareza
+PATTERNS_PASSTHROUGH = {
+    "duration_s":       rf"Duração de execução\s+\.+\s+{_NUM}\s*s",
+    "rx_total":         rf"Frames recebidos em vcan0\s+\.+\s+{_NUM}",
+    "fwd_total":        rf"Frames liberados\s+\.+\s+{_NUM}",
+    "blocked_id":       rf"Frames bloqueados \(ID\)\s+\.+\s+{_NUM}",
+    "blocked_dlc":      rf"Frames bloqueados \(DLC\)\s+\.+\s+{_NUM}",
+    "blocked_rate":     rf"Frames bloqueados \(rate\)\s+\.+\s+{_NUM}",
+    "throughput_fps":   rf"Throughput médio do gateway\s+\.+\s+{_NUM}\s*frames/s",
+}
+
 PATTERNS_GATEWAY_CEN3 = {
     "duration_s":       rf"Duração de execução\s+\.+\s+{_NUM}\s*s",
     "rx_total":         rf"Frames recebidos em vcan0\s+\.+\s+{_NUM}",
@@ -63,6 +76,38 @@ def parse_run_dir_name(dirname: str) -> tuple[str, int] | None:
     if not m:
         return None
     return m.group("attack"), int(m.group("run"))
+
+
+def collect_baseline(master: Path, rows: list[dict]) -> int:
+    """Varre baseline/runs/*/passthrough.log e adiciona linhas tidy a `rows`.
+
+    Cada execução de run_passthrough.sh produz um relatório textual no
+    mesmo formato do cen2 (gateway sem política). Aqui apenas etiquetamos
+    component='passthrough' para distinguir do gateway de cen2 quando o
+    CSV combinado for consumido pelas análises.
+    """
+    base = master / "baseline" / "runs"
+    if not base.is_dir():
+        return 0
+    n = 0
+    for d in sorted(base.iterdir()):
+        if not d.is_dir():
+            continue
+        info = parse_run_dir_name(d.name)
+        if info is None:
+            continue
+        attack, run = info
+        pt = d / "passthrough.log"
+        if not pt.is_file():
+            continue
+        data = parse_log(pt, PATTERNS_PASSTHROUGH)
+        for metric, value in data.items():
+            rows.append({
+                "scenario": "baseline", "attack": attack, "run": run,
+                "component": "passthrough", "metric": metric, "value": value,
+            })
+        n += 1
+    return n
 
 
 def collect_cen2(master: Path, rows: list[dict]) -> int:
@@ -146,6 +191,7 @@ def main() -> int:
     out_path = args.out or (master / "gateway_logs.csv")
     rows: list[dict] = []
 
+    n1 = collect_baseline(master, rows)
     n2 = collect_cen2(master, rows)
     n3 = collect_cen3(master, rows)
 
@@ -160,9 +206,10 @@ def main() -> int:
         w.writeheader()
         w.writerows(rows)
 
-    # Sumário humano
-    print(f"  cen2 runs parseadas : {n2}")
-    print(f"  cen3 runs parseadas : {n3}")
+    # Sumário
+    print(f"  baseline runs parseadas : {n1}")
+    print(f"  cen2 runs parseadas     : {n2}")
+    print(f"  cen3 runs parseadas     : {n3}")
     print(f"  linhas no CSV       : {len(rows):,}")
     print(f"  arquivo escrito     : {out_path}")
 

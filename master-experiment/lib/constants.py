@@ -38,6 +38,7 @@ SCENARIO_STAGES: dict[str, list[tuple[str, str, str]]] = {
 
 # Ordem (cenário, componente) para o eixo X de tabelas wide.
 SCENARIO_ORDER_ABSOLUTE: list[tuple[str, str]] = [
+    ("baseline", "passthrough"),
     ("cen2", "gateway"),
     ("cen3", "gateway"),
     ("cen3", "sender"),
