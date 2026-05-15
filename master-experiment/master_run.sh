@@ -40,6 +40,7 @@ export PERF_DATA_CSV
 
 # Helper compartilhado
 . "$HERE/../lib/perf_csv.sh"
+. "$HERE/../lib/governor.sh"
 
 # PIDs de processos em background (preenchidos durante a execução)
 ICSIM_PID=""
