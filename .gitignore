@@ -11,6 +11,8 @@ master-experiment/resultados-sw
 master-experiment/roda_analise_tudo.sh
 master-experiment/master_results
 anotacoes/
+lib/__pycache__
+master-experiment/lib/__pycache__
 
 # Binários
 /icsim

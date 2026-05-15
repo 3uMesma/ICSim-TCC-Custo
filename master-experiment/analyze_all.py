@@ -1,4 +1,4 @@
-# Lê a saída produzida por master_run.sh e agrega os dados dos três cenários 
+# Lê a saída produzida por master_run.sh e agrega os dados dos três cenários
 # para facilitar a discussão do TCC:
 #
 #   summary_all.csv         long-format   (cenário, componente, ataque,
@@ -13,10 +13,24 @@
 # cada cenário de segurança é definido como
 #       overhead_pct(scenario, attack, metric) =
 #            100 · (μ_scenario − μ_baseline) / μ_baseline
-# Quando a métrica é uma contagem absoluta (cycles, instructions, ...), 
-# interpretar a razão como custo relativo é direto; para métricas de tempo 
-# (task-clock em ms), o overhead corresponde ao alongamento da janela 
+# Quando a métrica é uma contagem absoluta (cycles, instructions, ...),
+# interpretar a razão como custo relativo é direto; para métricas de tempo
+# (task-clock em ms), o overhead corresponde ao alongamento da janela
 # ativa de CPU do componente medido.
+#
+# Referência de baseline (importante)
+# -----------------------------------
+# O baseline canônico desta análise é `baseline-passthrough` — um
+# forwarder transparente vcan0->vcan1 sem nenhuma política, definido em
+# `scenario1-baseline/passthrough.c`. Os três cenários (baseline, cen2,
+# cen3) compartilham o mesmo papel funcional ("ler de socket CAN,
+# decidir, escrever em outro socket"), de modo que o overhead vs baseline
+# isola estritamente o custo do mecanismo de segurança adicionado.
+#
+# Em campanhas anteriores à migração (pré-2026-05) o baseline era o
+# processo do próprio atacante (Python/cangen), o que misturava o custo
+# de gerar tráfego com o de filtrá-lo. A função `collect_baseline` mantém
+# fallback automático para esse formato legado.
 
 from __future__ import annotations
 
@@ -40,8 +54,8 @@ from lib.stats import t_value, aggregate_groupby
 from lib.perf_io import (
     to_float as _to_float,
     norm_metric as _norm_metric,
+    load_perf_csv,
     parse_baseline_csv,
-    parse_perf_native_csv,
 )
 
 
@@ -63,7 +77,8 @@ def canonical_attack(name: str) -> str:
 @dataclass
 class DataPoint:
     scenario: str
-    component: str   # 'process' (baseline), 'gateway', 'sender'
+    component: str   # 'passthrough' (baseline atual), 'gateway', 'sender',
+                     # 'process' (baseline legado — manido apenas p/ compat)
     attack: str
     run: int
     metric: str
@@ -79,13 +94,45 @@ def _name_to_attack_run(name: str) -> tuple[str, int] | None:
 
 
 def collect_baseline(master_dir: Path) -> list[DataPoint]:
+    """Coleta dados do baseline a partir do perf_data.csv canônico
+    (component=passthrough, gravado por run_passthrough.sh).
+
+    Fallback: se existir pasta baseline/raw/*.csv (formato legado, produzido
+    por scenario1-baseline/run_experiments.sh antes da migração para
+    passthrough), parseia também — assim este script continua compatível
+    com campanhas antigas. Em campanhas novas o perf_data.csv é a única
+    fonte da verdade do baseline.
+    """
     out: list[DataPoint] = []
+
+    # Caminho atual: perf_data.csv com scenario=baseline, component=passthrough.
+    perf_data = master_dir / "perf_data.csv"
+    if perf_data.is_file():
+        df = load_perf_csv(perf_data)
+        df_bl = df[(df["scenario"] == "baseline")
+                   & (df["component"] == "passthrough")]
+        for r in df_bl.itertuples(index=False):
+            out.append(DataPoint(
+                scenario="baseline",
+                component="passthrough",
+                attack=canonical_attack(str(r.attack)),
+                run=int(r.run),
+                metric=str(r.metric),
+                value=float(r.value),
+                unit=str(r.unit),
+            ))
+        if not df_bl.empty:
+            return out
+
+    # Fallback legado — baseline antigo media o processo do atacante.
+    # Mantido só para reanalisar campanhas anteriores à migração.
     raw_dir = master_dir / "baseline" / "raw"
     if not raw_dir.is_dir():
-        print(f"[info] sem pasta baseline/raw em {master_dir}; pulando baseline.")
+        print(f"[info] sem baseline em {master_dir} (nem passthrough no perf_data,"
+              f" nem baseline/raw legado); pulando baseline.")
         return out
+    print(f"[info] usando baseline LEGADO em {raw_dir} (component=process)")
     for csv_file in sorted(raw_dir.glob("*.csv")):
-        # Filename convention: <attack>_run<NN>.csv
         ar = _name_to_attack_run(csv_file.stem)
         default_attack = ar[0] if ar else None
         for r in parse_baseline_csv(csv_file, default_attack=default_attack):
@@ -102,41 +149,36 @@ def collect_baseline(master_dir: Path) -> list[DataPoint]:
 
 
 def collect_gateway_scenario(master_dir: Path, scenario: str) -> list[DataPoint]:
-    """Para cen2 e cen3: cada rep é uma pasta '<attack>_run<NN>/' contendo
-    perf.csv (gateway) e — apenas no cen3 — perf_sender.csv (sender)."""
+    """Coleta dados de cen2/cen3 (componentes 'gateway' e 'sender') a
+    partir do CSV canônico `perf_data.csv`.
+
+    O arquivo é produzido por `lib/perf_csv.sh:perf_csv_append_raw`,
+    chamado pelos runners `run_scenario{2,3}.sh` durante o
+    `master_run.sh`. Cada linha já está no formato esperado pelo
+    DataPoint, basta filtrar por (scenario, component)."""
+    perf_data = master_dir / "perf_data.csv"
+    if not perf_data.is_file():
+        print(f"[info] sem perf_data.csv em {master_dir}; pulando {scenario}.")
+        return []
+
+    df = load_perf_csv(perf_data)
+    df = df[(df["scenario"] == scenario)
+            & (df["component"].isin({"gateway", "sender"}))]
+    if df.empty:
+        print(f"[info] perf_data.csv sem linhas de {scenario}; pulando.")
+        return []
+
     out: list[DataPoint] = []
-    scen_dir = master_dir / ("cenario2" if scenario == "cen2" else "cenario3")
-    if not scen_dir.is_dir():
-        print(f"[info] sem pasta {scen_dir.name} em {master_dir}; pulando {scenario}.")
-        return out
-    for sub in sorted(scen_dir.iterdir()):
-        if not sub.is_dir():
-            continue
-        ar = _name_to_attack_run(sub.name)
-        if not ar:
-            continue
-        attack_raw, run = ar
-        attack = canonical_attack(attack_raw)
-
-        # gateway
-        perf_csv = sub / "perf.csv"
-        if perf_csv.is_file():
-            for r in parse_perf_native_csv(perf_csv, attack, run):
-                out.append(DataPoint(
-                    scenario=scenario, component="gateway",
-                    attack=r["attack"], run=r["run"],
-                    metric=r["metric"], value=r["value"], unit=r["unit"],
-                ))
-
-        # sender (só cen3)
-        sender_csv = sub / "perf_sender.csv"
-        if sender_csv.is_file():
-            for r in parse_perf_native_csv(sender_csv, attack, run):
-                out.append(DataPoint(
-                    scenario=scenario, component="sender",
-                    attack=r["attack"], run=r["run"],
-                    metric=r["metric"], value=r["value"], unit=r["unit"],
-                ))
+    for r in df.itertuples(index=False):
+        out.append(DataPoint(
+            scenario=str(r.scenario),
+            component=str(r.component),
+            attack=canonical_attack(str(r.attack)),
+            run=int(r.run),
+            metric=str(r.metric),
+            value=float(r.value),
+            unit=str(r.unit),
+        ))
     return out
 
 
@@ -170,7 +212,16 @@ def overhead_table(stats: pd.DataFrame, baseline_key: str = "baseline",
     """
     Constrói uma tabela wide para discussão do overhead. Linhas =
     (attack, metric); colunas = μ por (cenário, componente) + overhead %
-    em relação ao baseline.
+    em relação ao baseline-passthrough.
+
+    Comparação
+    ----------------------------
+    O baseline preferencial é `baseline-passthrough` (forwarder transparente
+    vcan0->vcan1 sem política), produzido por scenario1-baseline/passthrough.
+    Cen2-gateway e cen3-gateway têm o mesmo papel funcional (ler de vcan0,
+    decidir e escrever em vcan1), apenas adicionando a política de segurança.
+    Por isso a diferença pivot_cen − pivot_baseline isola estritamente o
+    custo do mecanismo de segurança.
 
     Para o cenário 3 reportamos separadamente gateway e sender e também
     a soma 'cen3-total' (custo SecOC integrado), porque o leitor do TCC
@@ -196,11 +247,21 @@ def overhead_table(stats: pd.DataFrame, baseline_key: str = "baseline",
             + pivot_mean.get("cen3-sender", 0).fillna(0)
         )
 
-    base_col = f"{baseline_key}-process"
-    if base_col not in pivot_mean.columns:
-        # Fallback: pega qualquer coluna baseline-* que exista.
-        cands = [c for c in pivot_mean.columns if c.startswith("baseline-")]
+    # Preferência: baseline-passthrough (forwarder transparente, apples-to-apples).
+    # Fallback ordenado: baseline-process (legado), qualquer baseline-*.
+    base_col = None
+    for cand in (f"{baseline_key}-passthrough", f"{baseline_key}-process"):
+        if cand in pivot_mean.columns:
+            base_col = cand
+            break
+    if base_col is None:
+        cands = [c for c in pivot_mean.columns if c.startswith(f"{baseline_key}-")]
         base_col = cands[0] if cands else None
+
+    if base_col is not None and base_col != f"{baseline_key}-passthrough":
+        print(f"[AVISO] usando '{base_col}' como referência de baseline — "
+              f"comparação não é apples-to-apples. Recompile passthrough e "
+              f"reexecute o baseline para obter overhead correto.")
 
     if base_col is not None:
         for col in list(pivot_mean.columns):
@@ -220,8 +281,9 @@ from lib.latex import write_table, format_cell_scientific
 
 
 def overhead_to_latex(table: pd.DataFrame, out_path: Path,
-                      caption: str = "Overhead percentual por cenário "
-                                     "em relação ao baseline (sem segurança).",
+                      caption: str = "Custo computacional process-attached "
+                                     "por cenário e overhead percentual em "
+                                     "relação ao processo baseline.",
                       label: str = "tab:overhead-can-security") -> None:
     """Gera uma tabela LaTeX com booktabs"""
     if table.empty:

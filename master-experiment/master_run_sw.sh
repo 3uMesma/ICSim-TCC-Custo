@@ -3,7 +3,7 @@
 # trap de limpeza, parsing de argumentos) é IDÊNTICA. As únicas mudanças:
 #
 #   1. Chama os sub-scripts SYSTEM-WIDE:
-#        cenario1-baseline/run_scenario1_sw.sh
+#        ataques/run_experiments_sw.sh
 #        cenario2-firewall/run_scenario2_sw.sh
 #        cenario3-secoc/run_scenario3_sw.sh
 #
@@ -111,8 +111,8 @@ check_prereqs() {
     command -v candump >/dev/null 2>&1 || missing+=("candump (can-utils)")
     [[ ${#missing[@]} -eq 0 ]] || die "dependências ausentes: ${missing[*]}"
 
-    [[ -x "$CEN1_DIR/run_scenario1_sw.sh" ]] \
-        || die "$CEN1_DIR/run_scenario1_sw.sh não é executável"
+    [[ -x "$CEN1_DIR/run_passthrough_sw.sh" ]] \
+        || die "$CEN1_DIR/run_passthrough_sw.sh não é executável"
     [[ -x "$CEN2_DIR/run_scenario2_sw.sh" ]] \
         || die "$CEN2_DIR/run_scenario2_sw.sh não é executável"
     [[ -x "$CEN3_DIR/run_scenario3_sw.sh" ]] \
@@ -120,6 +120,9 @@ check_prereqs() {
 
     for s in $SCENARIOS; do
         case "$s" in
+            baseline)
+                [[ -x "$CEN1_DIR/passthrough" ]] \
+                    || die "binário ausente: $CEN1_DIR/passthrough (rode 'make -f experiments.mk cen1')" ;;
             cen2)
                 [[ -x "$CEN2_DIR/gateway" ]] \
                     || die "binário ausente: $CEN2_DIR/gateway (rode 'make' em $CEN2_DIR)" ;;
@@ -128,7 +131,6 @@ check_prereqs() {
                     || die "binário ausente: $CEN3_DIR/secoc_sender"
                 [[ -x "$CEN3_DIR/secoc_gateway" ]] \
                     || die "binário ausente: $CEN3_DIR/secoc_gateway" ;;
-            baseline) ;;
             *) die "cenário desconhecido: $s" ;;
         esac
     done
@@ -210,13 +212,17 @@ collect_sysinfo() {
 }
 
 # ICSIM (TRÁFEGO LEGÍTIMO DE FUNDO)
+# Topologia idêntica à da campanha process-attached:
+#   baseline : icsim em vcan1 ; controls em vcan0   (atrás do passthrough)
+#   cen2     : icsim em vcan1 ; controls em vcan0   (atrás do gateway)
+#   cen3     : icsim em vcan1 ; controls em vcan_trust (atrás de sender+gateway)
 start_icsim_for() {
     local scenario="$1"
     [[ "$USE_ICSIM" -eq 1 ]] || return 0
 
     local icsim_iface controls_iface
     case "$scenario" in
-        baseline) icsim_iface="vcan0" ; controls_iface="vcan0" ;;
+        baseline) icsim_iface="vcan1" ; controls_iface="vcan0" ;;
         cen2)     icsim_iface="vcan1" ; controls_iface="vcan0" ;;
         cen3)     icsim_iface="vcan1" ; controls_iface="vcan_trust" ;;
         *) return 0 ;;
@@ -324,32 +330,44 @@ ensure_replay_capture_cen3() {
 run_baseline() {
     log ""
     log "============================================================"
-    log "  CENÁRIO 1 — BASELINE SYSTEM-WIDE (sem segurança)"
+    log "  CENÁRIO 1 — BASELINE SYSTEM-WIDE (passthrough)"
     log "============================================================"
 
     start_icsim_for baseline
 
-    "$CEN1_DIR/run_scenario1_sw.sh" \
-        -i vcan0 -d "$DURATION" -n "$REPS" -c "$COOLDOWN" \
-        -a "${ATTACKS// /,}" \
-        2>&1 | tee -a "$MASTER_LOG"
+    local logs_root="$RESULTS_ROOT/baseline/runs"
+    mkdir -p "$logs_root"
 
-    mkdir -p "$RESULTS_ROOT/baseline"
-    # Copia textos auxiliares (logs, sysinfo)
-    for f in experiment_log.txt sysinfo.txt attacks_run.log; do
-        [[ -f "$CEN1_DIR/results-sw/$f" ]] \
-            && cp "$CEN1_DIR/results-sw/$f" "$RESULTS_ROOT/baseline/" || true
+    local total_runs count
+    total_runs=$(( $(echo "$ATTACKS" | wc -w) * REPS ))
+    count=0
+
+    for attack in $ATTACKS; do
+        log ""
+        log "--- baseline/$attack — $REPS repetições de ${DURATION}s ---"
+        for run in $(seq 1 "$REPS"); do
+            count=$(( count + 1 ))
+            log "  [$count/$total_runs] baseline / $attack / rep $(printf '%02d' "$run")"
+
+            (
+                cd "$CEN1_DIR"
+                RUN_INDEX="$run" ./run_passthrough_sw.sh "$attack" "$DURATION"
+            ) >>"$MASTER_LOG" 2>&1 || log "  [AVISO] rep $run de $attack falhou"
+
+            local last_dir
+            last_dir="$(ls -1dt "$CEN1_DIR/results-sw/"*"-${attack}" 2>/dev/null | head -1 || true)"
+            if [[ -n "$last_dir" && -d "$last_dir" ]]; then
+                local target="$logs_root/${attack}_run$(printf '%02d' "$run")"
+                mv "$last_dir" "$target"
+            fi
+
+            [[ "$run" -lt "$REPS" ]] && sleep "$COOLDOWN"
+        done
+        sleep "$COOLDOWN"
     done
 
-    # Move os logs candump (Etapa B) para dentro do baseline da campanha
-    if [[ -d "$CEN1_DIR/results-sw/lat_runs" ]]; then
-        rm -rf "$RESULTS_ROOT/baseline/lat_runs"
-        mv "$CEN1_DIR/results-sw/lat_runs" "$RESULTS_ROOT/baseline/lat_runs"
-        log "  [baseline-sw] lat_runs movido para $RESULTS_ROOT/baseline/lat_runs"
-    fi
-
     stop_icsim
-    log "  [ok] baseline-sw concluído (perf → $PERF_DATA_CSV)"
+    log "  [ok] baseline-sw concluído (perf → $PERF_DATA_CSV; logs → $logs_root/)"
 }
 
 run_cenario2() {

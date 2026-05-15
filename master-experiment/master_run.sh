@@ -101,8 +101,8 @@ check_prereqs() {
     command -v candump >/dev/null 2>&1 || missing+=("candump (can-utils)")
     [[ ${#missing[@]} -eq 0 ]] || die "dependências ausentes: ${missing[*]}"
 
-    [[ -x "$CEN1_DIR/run_scenario1.sh" ]] \
-        || die "$CEN1_DIR/run_scenario1.sh não é executável"
+    [[ -x "$CEN1_DIR/run_passthrough.sh" ]] \
+        || die "$CEN1_DIR/run_passthrough.sh não é executável"
     [[ -x "$CEN2_DIR/run_scenario2.sh" ]] \
         || die "$CEN2_DIR/run_scenario2.sh não é executável"
     [[ -x "$CEN3_DIR/run_scenario3.sh" ]] \
@@ -110,6 +110,10 @@ check_prereqs() {
 
     for s in $SCENARIOS; do
         case "$s" in
+            baseline)
+                [[ -x "$CEN1_DIR/passthrough" ]] \
+                    || die "binário ausente: $CEN1_DIR/passthrough (rode 'make -f experiments.mk cen1')"
+                ;;
             cen2)
                 [[ -x "$CEN2_DIR/gateway" ]] \
                     || die "binário ausente: $CEN2_DIR/gateway (rode 'make' em $CEN2_DIR)"
@@ -120,7 +124,6 @@ check_prereqs() {
                 [[ -x "$CEN3_DIR/secoc_gateway" ]] \
                     || die "binário ausente: $CEN3_DIR/secoc_gateway"
                 ;;
-            baseline) ;;
             *) die "cenário desconhecido: $s (use baseline, cen2 ou cen3)" ;;
         esac
     done
@@ -190,17 +193,21 @@ collect_sysinfo() {
 }
 
 # ICSIM (tráfego legítimo de fundo)
-# Topologia por cenário:
-#   baseline : icsim em vcan0          ; controls em vcan0
-#   cen2     : icsim em vcan1          ; controls em vcan0
-#   cen3     : icsim em vcan1          ; controls em vcan_trust
+# Topologia por cenário — apples-to-apples entre os três:
+#   baseline : icsim em vcan1          ; controls em vcan0   (atrás do passthrough)
+#   cen2     : icsim em vcan1          ; controls em vcan0   (atrás do gateway)
+#   cen3     : icsim em vcan1          ; controls em vcan_trust (atrás do sender+gateway)
+#
+# A escolha do baseline aqui mudou em relação à versão antiga (icsim+controls
+# em vcan0): o forwarder transparente (passthrough) precisa enxergar tráfego
+# em vcan0 e entregar em vcan1, replicando o caminho lógico dos cenários 2 e 3.
 start_icsim_for() {
     local scenario="$1"
     [[ "$USE_ICSIM" -eq 1 ]] || return 0
 
     local icsim_iface controls_iface
     case "$scenario" in
-        baseline) icsim_iface="vcan0" ; controls_iface="vcan0" ;;
+        baseline) icsim_iface="vcan1" ; controls_iface="vcan0" ;;
         cen2)     icsim_iface="vcan1" ; controls_iface="vcan0" ;;
         cen3)     icsim_iface="vcan1" ; controls_iface="vcan_trust" ;;
         *) return 0 ;;
@@ -320,40 +327,54 @@ ensure_replay_capture_cen3() {
 
 # EXECUÇÃO POR CENÁRIO
 
-# Cenário 1: baseline (sem segurança)
+# Cenário 1: baseline (sem segurança) — passthrough vcan0 -> vcan1
+#
+# Loop análogo a run_cenario2/run_cenario3: cada rodada chama
+# run_passthrough.sh que sobe o forwarder transparente, anexa perf nele
+# e dispara o ataque. Substitui o antigo run_scenario1.sh, que anexava
+# perf ao próprio atacante (Python/cangen) e produzia comparação injusta
+# com gateway/sender.
 run_baseline() {
     log ""
     log "============================================================"
-    log "  CENÁRIO 1 — BASELINE (sem segurança)"
+    log "  CENÁRIO 1 — BASELINE (passthrough sem segurança)"
     log "============================================================"
 
     start_icsim_for baseline
 
-    "$CEN1_DIR/run_scenario1.sh" \
-        -i vcan0 \
-        -d "$DURATION" \
-        -n "$REPS" \
-        -c "$COOLDOWN" \
-        -a "${ATTACKS_BASELINE// /,}" \
-        2>&1 | tee -a "$MASTER_LOG"
+    local logs_root="$RESULTS_ROOT/baseline/runs"
+    mkdir -p "$logs_root"
 
-    mkdir -p "$RESULTS_ROOT/baseline"
-    [[ -f "$ATAQUES_DIR/results/experiment_log.txt" ]] \
-        && cp "$ATAQUES_DIR/results/experiment_log.txt" "$RESULTS_ROOT/baseline/" || true
-    [[ -f "$ATAQUES_DIR/results/sysinfo.txt" ]] \
-        && cp "$ATAQUES_DIR/results/sysinfo.txt" "$RESULTS_ROOT/baseline/" || true
+    local total_runs count
+    total_runs=$(( $(echo "$ATTACKS_BASELINE" | wc -w) * REPS ))
+    count=0
 
-    if [[ -f "$HERE/split_baseline_to_raw.py" && -s "$PERF_DATA_CSV" ]]; then
-        log "  [baseline] gerando baseline/raw/ a partir de $PERF_DATA_CSV…"
-        python3 "$HERE/split_baseline_to_raw.py" \
-            --master-dir "$RESULTS_ROOT" \
-            2>&1 | tee -a "$MASTER_LOG" || log "  [AVISO] split_baseline_to_raw.py falhou"
-    else
-        log "  [AVISO] pulando split: script=$HERE/split_baseline_to_raw.py csv=$PERF_DATA_CSV"
-    fi
+    for attack in $ATTACKS_BASELINE; do
+        log ""
+        log "--- baseline/$attack — $REPS repetições de ${DURATION}s ---"
+        for run in $(seq 1 "$REPS"); do
+            count=$(( count + 1 ))
+            log "  [$count/$total_runs] baseline / $attack / rep $(printf '%02d' "$run")"
+
+            (
+                cd "$CEN1_DIR"
+                RUN_INDEX="$run" ./run_passthrough.sh "$attack" "$DURATION"
+            ) >>"$MASTER_LOG" 2>&1 || log "  [AVISO] rep $run de $attack falhou — continuando"
+
+            local last_dir
+            last_dir="$(ls -1dt "$CEN1_DIR/results/"*"-${attack}" 2>/dev/null | head -1 || true)"
+            if [[ -n "$last_dir" && -d "$last_dir" ]]; then
+                local target="$logs_root/${attack}_run$(printf '%02d' "$run")"
+                mv "$last_dir" "$target"
+            fi
+
+            [[ "$run" -lt "$REPS" ]] && sleep "$COOLDOWN"
+        done
+        sleep "$COOLDOWN"
+    done
 
     stop_icsim
-    log "  [ok] cenário baseline concluído (perf → $PERF_DATA_CSV)"
+    log "  [ok] cenário baseline concluído (perf → $PERF_DATA_CSV; logs → $logs_root/)"
 }
 
 # Cenário 2: Firewall/Allowlist
