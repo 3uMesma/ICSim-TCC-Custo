@@ -25,7 +25,12 @@ NORMALIZE_EXCLUDE: set[str] = set()
 LEGITIMATE_IDS: set[str] = {"244", "188", "19B"}
 
 # Etapas de latência por cenário, formato (label, input_log, output_log).
+# Desde a introdução do baseline-passthrough, o baseline também tem
+# cadeia vcan0->vcan1 medível, em paralelo com cen2 (estrutura idêntica).
 SCENARIO_STAGES: dict[str, list[tuple[str, str, str]]] = {
+    "baseline": [
+        ("passthrough", "can_in.log", "can_out.log"),
+    ],
     "cen2": [
         ("firewall", "can_in.log", "can_out.log"),
     ],
@@ -37,6 +42,8 @@ SCENARIO_STAGES: dict[str, list[tuple[str, str, str]]] = {
 }
 
 # Ordem (cenário, componente) para o eixo X de tabelas wide.
+# Inclui baseline-passthrough como primeira coluna desde a migração para
+# o forwarder transparente — é a referência apples-to-apples para cen2/cen3.
 SCENARIO_ORDER_ABSOLUTE: list[tuple[str, str]] = [
     ("baseline", "passthrough"),
     ("cen2", "gateway"),

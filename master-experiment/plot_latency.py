@@ -35,7 +35,18 @@ apply_rcparams({"legend.fontsize": 9})
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.constants import ATTACK_ORDER
-STAGE_ORDER = ["firewall", "secoc_sender", "secoc_gateway", "secoc_total"]
+STAGE_ORDER = ["passthrough", "firewall", "secoc_sender",
+               "secoc_gateway", "secoc_total"]
+
+# Stages (cenário, etapa) plotados em ordem fixa. baseline-passthrough
+# aparece como referência quando há dados.
+PLOT_STAGES: list[tuple[str, str]] = [
+    ("baseline", "passthrough"),
+    ("cen2", "firewall"),
+    ("cen3", "secoc_sender"),
+    ("cen3", "secoc_gateway"),
+    ("cen3", "secoc_total"),
+]
 
 
 def color_for(scenario: str, stage: str) -> str:
@@ -50,18 +61,39 @@ def load_csv(master: Path, fname: str) -> pd.DataFrame:
     return pd.read_csv(p)
 
 
+def _quality_map(summary: pd.DataFrame) -> dict[tuple[str, str, str], str]:
+    """Constrói mapa (scenario, stage, attack) -> quality a partir do summary.
+    Retorna 'ok' para chaves ausentes (legado / sem coluna quality)."""
+    out: dict[tuple[str, str, str], str] = {}
+    if summary.empty or "quality" not in summary.columns:
+        return out
+    for _, r in summary.iterrows():
+        key = (str(r["scenario"]), str(r["stage"]), str(r["attack"]))
+        q = r.get("quality")
+        if pd.notna(q):
+            out[key] = str(q)
+    return out
+
+
+def _is_plottable(quality_map: dict, sc: str, st: str, atk: str) -> bool:
+    """True se a tupla NÃO é 'bad'. 'warn' continua sendo plotado (com hatch)."""
+    return quality_map.get((sc, st, atk), "ok") != "bad"
+
+
 # Figura 1: boxplot por (etapa, ataque)
-def fig_latency_box(per_run: pd.DataFrame, out_dir: Path) -> None:
+def fig_latency_box(per_run: pd.DataFrame, summary: pd.DataFrame,
+                    out_dir: Path) -> None:
+    """Boxplot da latência por (cenário, etapa, ataque). Sem distinção
+    visual de qualidade — a discussão da confiabilidade do pareamento
+    (cobertura por ataque) fica para o texto da monografia, que tem
+    acesso ao CSV bruto (`latency_summary.csv`)."""
     if per_run.empty:
         print("  [aviso] latency_per_run.csv vazio — pulando boxplot")
         return
 
+    _ = summary  # mantido na assinatura por compat; não usado
     attacks = [a for a in ATTACK_ORDER if a in per_run["attack"].unique()]
-    stages_present = [(sc, st)
-                      for sc, st in [("cen2", "firewall"),
-                                     ("cen3", "secoc_sender"),
-                                     ("cen3", "secoc_gateway"),
-                                     ("cen3", "secoc_total")]
+    stages_present = [(sc, st) for sc, st in PLOT_STAGES
                       if not per_run[(per_run.scenario == sc) &
                                      (per_run.stage == st)].empty]
     if not stages_present:
@@ -94,7 +126,7 @@ def fig_latency_box(per_run: pd.DataFrame, out_dir: Path) -> None:
             patch.set_facecolor(c)
             patch.set_alpha(0.7)
         legend_handles.append(plt.Rectangle((0, 0), 1, 1, color=c,
-                                            label=STAGE_LABELS[st]))
+                                            label=STAGE_LABELS.get(st, st)))
 
     ax.set_xticks(positions_x)
     ax.set_xticklabels([ATTACK_LABELS.get(a, a) for a in attacks])
@@ -111,19 +143,18 @@ def fig_latency_box(per_run: pd.DataFrame, out_dir: Path) -> None:
 
 
 # Figura 2: CDF da latência por cenário (uma curva por cen/etapa)
-def fig_latency_cdf(per_run: pd.DataFrame, out_dir: Path) -> None:
+def fig_latency_cdf(per_run: pd.DataFrame, summary: pd.DataFrame,
+                    out_dir: Path) -> None:
     if per_run.empty:
         return
+    _ = summary  # compat — não usado para distinção visual
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6), sharey=True)
     titles = ["Carga alta — DoS", "Carga baixa — fuzzing/spoofing/replay"]
     groups = [["dos-py", "dos-cangen"],
               ["fuzzing", "spoofing", "replay"]]
 
     for ax, title, atks in zip(axes, titles, groups):
-        for sc, st in [("cen2", "firewall"),
-                       ("cen3", "secoc_sender"),
-                       ("cen3", "secoc_gateway"),
-                       ("cen3", "secoc_total")]:
+        for sc, st in PLOT_STAGES:
             sub = per_run[(per_run.scenario == sc) &
                           (per_run.stage == st) &
                           (per_run.attack.isin(atks))]
@@ -143,7 +174,7 @@ def fig_latency_cdf(per_run: pd.DataFrame, out_dir: Path) -> None:
         ax.set_ylim(0, 1.02)
         ax.legend(loc="lower right", fontsize=8)
     axes[0].set_ylabel("CDF — fração de frames ≤ x")
-    fig.suptitle("CDF da latência de encaminhamento — cenário 2 vs cenário 3",
+    fig.suptitle("CDF da latência de encaminhamento — baseline / cen2 / cen3",
                  y=1.02)
     plt.tight_layout()
     fig.savefig(out_dir / "fig_latency_cdf.png")
@@ -158,12 +189,9 @@ def fig_latency_p99(summary: pd.DataFrame, out_dir: Path) -> None:
         return
     attacks = [a for a in ATTACK_ORDER if a in summary["attack"].unique()]
 
-    stages_present = [(sc, st) for sc, st in [
-        ("cen2", "firewall"),
-        ("cen3", "secoc_sender"),
-        ("cen3", "secoc_gateway"),
-        ("cen3", "secoc_total"),
-    ] if not summary[(summary.scenario == sc) & (summary.stage == st)].empty]
+    stages_present = [(sc, st) for sc, st in PLOT_STAGES
+                      if not summary[(summary.scenario == sc) &
+                                     (summary.stage == st)].empty]
 
     n_groups = len(attacks)
     n_series = len(stages_present)
@@ -233,8 +261,8 @@ def main() -> int:
         return 1
 
     print(f"  Output dir: {out_dir}")
-    fig_latency_box(per_run, out_dir)
-    fig_latency_cdf(per_run, out_dir)
+    fig_latency_box(per_run, summary, out_dir)
+    fig_latency_cdf(per_run, summary, out_dir)
     fig_latency_p99(summary, out_dir)
     return 0
 
