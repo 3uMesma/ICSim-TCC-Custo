@@ -104,6 +104,12 @@ def build_absolute_table(perf: pd.DataFrame) -> pd.DataFrame:
 #                              (frames lidos em vcan_trust pelo SecOC sender)
 #     cen3/total            →  rx_total do gateway.log do cen3
 #                              (carga ofertada à camada de segurança)
+#
+# O cen3-total é mantido com denominador = gateway.rx_total porque
+# responde uma pergunta diferente: "quanto de CPU a camada de segurança
+# consome para cada frame que o atacante consegue ofertar?". Essa é a
+# métrica de overhead amortizado da camada, complementar (não substitutiva)
+# ao custo unitário de gateway e sender em separado.
 def build_normalized_table(perf: pd.DataFrame, gwlogs: pd.DataFrame) -> pd.DataFrame:
     """
     Para cada (cenário, ataque, run), divide cycles/instructions/task-clock
@@ -199,6 +205,93 @@ def build_normalized_table(perf: pd.DataFrame, gwlogs: pd.DataFrame) -> pd.DataF
     return out
 
 
+# Evidência do custo de verificação MAC sob ataques que simulam tráfego legítimo
+# ------------------------------------------------------------------------------
+# Quando o ataque usa IDs fora da allowlist (DoS-py com 0x000, DoS-cangen
+# random), o gateway rejeita 99.99% do tráfego no `blocked_id` — antes de
+# acionar a verificação criptográfica. Nesse regime, cen2 e cen3 têm custo
+# essencialmente idêntico (lookup linear de ID + descarte).
+#
+# Quando o ataque usa IDs legítimos com payload falsificado (spoofing,
+# replay), parte do tráfego PASSA o filtro de ID e somente no cen3 esses
+# frames disparam a verificação AES-CMAC + FV. A diferença cen3 − cen2 em
+# cycles por frame recebido isola justamente esse trabalho extra.
+#
+# Esta tabela quantifica:
+#   - n_reached_mac      : rx_total − blocked_id ≈ frames que chegaram
+#                          ao bloco de verificação criptográfica
+#   - delta_cycles_total : (cen3.cycles − cen2.cycles) somado por ataque
+#   - cycles_per_mac_check: delta_cycles_total / n_reached_mac
+#                           cota empírica do custo unitário do MAC+FV check
+def build_mac_overhead_evidence(perf: pd.DataFrame,
+                                gwlogs: pd.DataFrame) -> pd.DataFrame:
+    """Compara o custo absoluto cen3-gateway vs cen2-gateway por ataque e
+    cruza com a contagem de frames que chegaram ao MAC (rx − blocked_id).
+    Retorna DataFrame agregado por ataque."""
+    # Custo absoluto em cycles agregado por (cenário, ataque) — usa apenas
+    # o componente gateway, que é o que existe nos dois cenários.
+    cyc = perf[(perf.metric == "cycles")
+               & (perf.component == "gateway")].copy()
+    if cyc.empty:
+        return pd.DataFrame()
+
+    # μ pareado por run; depois agrega por ataque.
+    pv = cyc.groupby(["scenario", "attack", "run"])["value"].sum().reset_index()
+    pv_wide = pv.pivot_table(index=["attack", "run"], columns="scenario",
+                             values="value")
+    if not {"cen2", "cen3"}.issubset(pv_wide.columns):
+        return pd.DataFrame()
+    pv_wide = pv_wide.dropna(subset=["cen2", "cen3"])
+    pv_wide["delta"] = pv_wide["cen3"] - pv_wide["cen2"]
+
+    # rx_total e blocked_id por (cenário, ataque, run, gateway)
+    counters = gwlogs[(gwlogs.component == "gateway")
+                      & (gwlogs.scenario == "cen3")
+                      & (gwlogs.metric.isin(["rx_total", "blocked_id"]))]
+    counters_wide = counters.pivot_table(
+        index=["attack", "run"], columns="metric", values="value")
+    if "rx_total" not in counters_wide or "blocked_id" not in counters_wide:
+        return pd.DataFrame()
+    counters_wide["reached_mac"] = (counters_wide["rx_total"]
+                                    - counters_wide["blocked_id"])
+
+    merged = pv_wide.join(counters_wide[["reached_mac"]], how="inner")
+    if merged.empty:
+        return pd.DataFrame()
+    merged = merged[merged["reached_mac"] > 0].copy()
+    merged["cycles_per_mac_check"] = (merged["delta"]
+                                      / merged["reached_mac"])
+
+    # Agrega por ataque (mean ± IC95 sobre os runs).
+    rows = []
+    for atk, gg in merged.groupby("attack"):
+        s_delta = aggregate_stats(gg["delta"])
+        s_per   = aggregate_stats(gg["cycles_per_mac_check"])
+        rows.append({
+            "attack": atk,
+            "n_runs": int(s_delta["n"]),
+            "reached_mac_mean": float(gg["reached_mac"].mean()),
+            "delta_cycles_mean": float(s_delta["mean"]),
+            "delta_cycles_ci95_half": float(s_delta["ci95_half"]),
+            "cycles_per_mac_check_mean": float(s_per["mean"]),
+            "cycles_per_mac_check_ci95_half": float(s_per["ci95_half"]),
+            "cv_pct": float(s_per["cv_pct"]),
+        })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    # Ordena na ordem de ataques + arredonda.
+    out["__order"] = out["attack"].map(
+        {a: i for i, a in enumerate(ATTACK_ORDER)}).fillna(99)
+    out = out.sort_values("__order").drop(columns="__order").reset_index(drop=True)
+    for c in ("reached_mac_mean",
+              "delta_cycles_mean", "delta_cycles_ci95_half",
+              "cycles_per_mac_check_mean", "cycles_per_mac_check_ci95_half",
+              "cv_pct"):
+        out[c] = out[c].astype(float).round(2)
+    return out
+
+
 # Custo por autenticação SecOC
 # ----------------------------
 # Métrica dedicada ao cen3/sender: custo de UMA operação de autenticação
@@ -208,7 +301,8 @@ def build_normalized_table(perf: pd.DataFrame, gwlogs: pd.DataFrame) -> pd.DataF
 #
 # Diferente de cycles/frame (que divide por TODOS os frames lidos do
 # vcan_trust, incluindo os descartados por ID/LEN), esta métrica isola o
-# trabalho criptográfico de fato realizado.def build_cost_per_auth_table(perf: pd.DataFrame,
+# trabalho criptográfico de fato realizado.
+def build_cost_per_auth_table(perf: pd.DataFrame,
                               gwlogs: pd.DataFrame) -> pd.DataFrame:
     """Para cen3/sender, calcula cycles, instructions e task-clock divididos
     por `authenticated_tx` (frames efetivamente autenticados pelo sender).
@@ -527,6 +621,53 @@ def main() -> int:
         label="tab:norm-instructions",
     )
 
+    # ---- Evidência do custo de verificação MAC (cen3 vs cen2 gateway) ----
+    mac_ev = build_mac_overhead_evidence(perf, gw)
+    if not mac_ev.empty:
+        mac_csv = master / "mac_overhead_evidence.csv"
+        mac_ev.to_csv(mac_csv, index=False)
+        print(f"\n  ✓ mac_overhead_evidence.csv → {mac_csv}")
+
+        # Tabela LaTeX legível. Coluna principal: cycles_per_mac_check.
+        # Para legibilidade, formata reached_mac em milhares (×10³).
+        tex_rows = []
+        for _, r in mac_ev.iterrows():
+            tex_rows.append({
+                "ataque": r["attack"],
+                r"frames p/ MAC ($\times 10^3$)":
+                    f"{r['reached_mac_mean']/1000:,.1f}",
+                r"$\Delta$ ciclos totais ($\times 10^9$)":
+                    f"{r['delta_cycles_mean']/1e9:,.2f} $\\pm$ "
+                    f"{r['delta_cycles_ci95_half']/1e9:,.2f}",
+                "ciclos / verificação MAC":
+                    f"{r['cycles_per_mac_check_mean']:,.1f} $\\pm$ "
+                    f"{r['cycles_per_mac_check_ci95_half']:,.1f}",
+            })
+        tex_df = pd.DataFrame(tex_rows)
+        write_latex(
+            tex_df,
+            master / "mac_overhead_evidence.tex",
+            caption=("Evidência do custo de verificação MAC sob ataques que "
+                     "simulam tráfego legítimo. $\\Delta$ ciclos = "
+                     "(cen3-gateway $-$ cen2-gateway) acumulado nos n=20 "
+                     "runs; ``frames p/ MAC'' = \\texttt{rx\\_total} "
+                     "$-$ \\texttt{blocked\\_id} no cen3 (frames que "
+                     "passaram o filtro de ID e dispararam o bloco "
+                     "criptográfico). A última coluna é a cota empírica "
+                     "do custo unitário da verificação AES-CMAC + FV. "
+                     "A interpretação é confiável apenas quando "
+                     "``frames p/ MAC'' é grande: em \\texttt{dos-py} e "
+                     "\\texttt{dos-cangen} o atacante usa IDs fora da "
+                     "allowlist e quase nenhum frame chega ao bloco "
+                     "criptográfico, então a divisão por um denominador "
+                     "pequeno amplifica o ruído amostral. O caso "
+                     "diagnóstico é \\texttt{spoofing}, onde "
+                     "$\\sim 30$\\,k frames por run com IDs legítimos "
+                     "disparam a verificação."),
+            label="tab:mac-overhead-evidence",
+        )
+        print(f"  ✓ mac_overhead_evidence.tex")
+
     # ---- Custo por autenticação SecOC (cen3/sender) ----
     cost_auth = build_cost_per_auth_table(perf, gw)
     if not cost_auth.empty:
@@ -608,6 +749,17 @@ def main() -> int:
     print_normalized(normalized)
     if not cost_auth.empty:
         print_cost_per_auth(cost_auth)
+    if not mac_ev.empty:
+        print_block("EVIDÊNCIA DO CUSTO MAC SOB ATAQUE COM ID LEGÍTIMO")
+        print("  Δ ciclos = cen3-gateway − cen2-gateway (somado nos n_runs).")
+        print("  frames_p/MAC = rx_total − blocked_id (cen3): frames que")
+        print("                 passaram o filtro de ID e dispararam o CMAC.")
+        for _, r in mac_ev.iterrows():
+            print(f"  • {r['attack']:>11}  "
+                  f"frames_p/MAC = {r['reached_mac_mean']:>10,.0f}  "
+                  f"Δciclos = {r['delta_cycles_mean']:>16,.0f}  "
+                  f"ciclos/check = {r['cycles_per_mac_check_mean']:>12,.1f} "
+                  f"± {r['cycles_per_mac_check_ci95_half']:>10,.1f}")
 
     print()
     print("Próximos passos:")
