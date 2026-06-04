@@ -66,6 +66,7 @@ SCENARIO_LABELS_ABSOLUTE = {
 }
 
 STAGE_LABELS_LATENCY = {
+    "passthrough":    "Baseline - Passthrough",
     "firewall":       "Cen. 2 — Firewall",
     "secoc_sender":   "Cen. 3 — SecOC sender",
     "secoc_gateway":  "Cen. 3 — SecOC gateway",

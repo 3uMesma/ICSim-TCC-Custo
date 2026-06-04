@@ -18,19 +18,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-# lib.plotting (importado abaixo) já faz matplotlib.use("Agg") antes
-# de pyplot ser importado, então plt aqui herda o backend correto.
 
 from lib.plotting import (
     apply_rcparams,
-    COLORS_LATENCY as COLORS,
     ATTACK_LABELS_PLAIN as ATTACK_LABELS,
     STAGE_LABELS_LATENCY as STAGE_LABELS,
-    color_for as _color_for_lib,
 )
-import matplotlib.pyplot as plt  # noqa: E402 — após lib.plotting
+import matplotlib.pyplot as plt
 
-# Mantém override de legend.fontsize=9 (diferente de plot_absolute=10).
 apply_rcparams({"legend.fontsize": 9})
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -38,8 +33,6 @@ from lib.constants import ATTACK_ORDER
 STAGE_ORDER = ["passthrough", "firewall", "secoc_sender",
                "secoc_gateway", "secoc_total"]
 
-# Stages (cenário, etapa) plotados em ordem fixa. baseline-passthrough
-# aparece como referência quando há dados.
 PLOT_STAGES: list[tuple[str, str]] = [
     ("baseline", "passthrough"),
     ("cen2", "firewall"),
@@ -48,22 +41,26 @@ PLOT_STAGES: list[tuple[str, str]] = [
     ("cen3", "secoc_total"),
 ]
 
+# Nova paleta de cores (cinza inserido para cobrir o baseline/passthrough)
+COLORS = {
+    "baseline/passthrough": "#999999", 
+    "cen2/firewall": "#874FFF",
+    "cen3/secoc_sender": "#66D575",
+    "cen3/secoc_gateway": "#F24822",
+    "cen3/secoc_total": "#FFC943"
+}
 
 def color_for(scenario: str, stage: str) -> str:
-    return _color_for_lib(scenario, stage, colors_map=COLORS)
+    key = f"{scenario}/{stage}"
+    return COLORS.get(key, "#000000")
 
-
-# Carregamento
 def load_csv(master: Path, fname: str) -> pd.DataFrame:
     p = master / fname
     if not p.is_file():
         return pd.DataFrame()
     return pd.read_csv(p)
 
-
 def _quality_map(summary: pd.DataFrame) -> dict[tuple[str, str, str], str]:
-    """Constrói mapa (scenario, stage, attack) -> quality a partir do summary.
-    Retorna 'ok' para chaves ausentes (legado / sem coluna quality)."""
     out: dict[tuple[str, str, str], str] = {}
     if summary.empty or "quality" not in summary.columns:
         return out
@@ -74,24 +71,17 @@ def _quality_map(summary: pd.DataFrame) -> dict[tuple[str, str, str], str]:
             out[key] = str(q)
     return out
 
-
 def _is_plottable(quality_map: dict, sc: str, st: str, atk: str) -> bool:
-    """True se a tupla NÃO é 'bad'. 'warn' continua sendo plotado (com hatch)."""
     return quality_map.get((sc, st, atk), "ok") != "bad"
-
 
 # Figura 1: boxplot por (etapa, ataque)
 def fig_latency_box(per_run: pd.DataFrame, summary: pd.DataFrame,
                     out_dir: Path) -> None:
-    """Boxplot da latência por (cenário, etapa, ataque). Sem distinção
-    visual de qualidade — a discussão da confiabilidade do pareamento
-    (cobertura por ataque) fica para o texto da monografia, que tem
-    acesso ao CSV bruto (`latency_summary.csv`)."""
     if per_run.empty:
         print("  [aviso] latency_per_run.csv vazio — pulando boxplot")
         return
 
-    _ = summary  # mantido na assinatura por compat; não usado
+    _ = summary
     attacks = [a for a in ATTACK_ORDER if a in per_run["attack"].unique()]
     stages_present = [(sc, st) for sc, st in PLOT_STAGES
                       if not per_run[(per_run.scenario == sc) &
@@ -132,22 +122,19 @@ def fig_latency_box(per_run: pd.DataFrame, summary: pd.DataFrame,
     ax.set_xticklabels([ATTACK_LABELS.get(a, a) for a in attacks])
     ax.set_yscale("log")
     ax.set_ylabel("Latência de encaminhamento (µs, escala log)")
-    ax.set_title("Latência de encaminhamento por (cenário, ataque) — "
-                 "boxplot sobre todas as rodadas")
-    ax.legend(handles=legend_handles, loc="upper left", ncol=2)
+    ax.legend(handles=legend_handles, loc="upper right", ncol=2)
     plt.tight_layout()
     fig.savefig(out_dir / "fig_latency_box.png")
     fig.savefig(out_dir / "fig_latency_box.pdf")
     plt.close(fig)
     print("  ✓ fig_latency_box.{png,pdf}")
 
-
-# Figura 2: CDF da latência por cenário (uma curva por cen/etapa)
+# Figura 2: CDF da latência por cenário
 def fig_latency_cdf(per_run: pd.DataFrame, summary: pd.DataFrame,
                     out_dir: Path) -> None:
     if per_run.empty:
         return
-    _ = summary  # compat — não usado para distinção visual
+    _ = summary
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6), sharey=True)
     titles = ["Carga alta — DoS", "Carga baixa — fuzzing/spoofing/replay"]
     groups = [["dos-py", "dos-cangen"],
@@ -170,20 +157,18 @@ def fig_latency_cdf(per_run: pd.DataFrame, summary: pd.DataFrame,
                     label=STAGE_LABELS.get(st, f"{sc}/{st}"))
         ax.set_xscale("log")
         ax.set_xlabel("Latência (µs, escala log)")
-        ax.set_title(title)
+        ax.set_title(title) # Mantido apenas como rótulo de eixo/subplot
         ax.set_ylim(0, 1.02)
         ax.legend(loc="lower right", fontsize=8)
     axes[0].set_ylabel("CDF — fração de frames ≤ x")
-    fig.suptitle("CDF da latência de encaminhamento — baseline / cen2 / cen3",
-                 y=1.02)
+    
     plt.tight_layout()
     fig.savefig(out_dir / "fig_latency_cdf.png")
     fig.savefig(out_dir / "fig_latency_cdf.pdf")
     plt.close(fig)
     print("  ✓ fig_latency_cdf.{png,pdf}")
 
-
-# Figura 3: p99 com IC bootstrap simples por (etapa, ataque)
+# Figura 3: p99 com IC bootstrap simples
 def fig_latency_p99(summary: pd.DataFrame, out_dir: Path) -> None:
     if summary.empty:
         return
@@ -212,21 +197,18 @@ def fig_latency_p99(summary: pd.DataFrame, out_dir: Path) -> None:
                 means.append(np.nan); errs.append(0.0)
                 continue
             means.append(float(row["p99_us"].iloc[0]))
-            # Aproximação: usa ic95_half como erro (informativo, não estritamente
-            # IC95 do quantil p99 — para p99 teríamos que bootstrap).
             errs.append(float(row["ic95_half_us"].iloc[0]))
         ax.bar(x + offset, means, width=width * 0.92,
                yerr=errs, capsize=2.5,
                color=color_for(sc, st), edgecolor="white",
-               label=STAGE_LABELS[st],
+               label=STAGE_LABELS.get(st, st),
                error_kw={"elinewidth": 0.9})
 
     ax.set_xticks(x)
     ax.set_xticklabels([ATTACK_LABELS.get(a, a) for a in attacks])
     ax.set_yscale("log")
     ax.set_ylabel("Latência p99 (µs, escala log)")
-    ax.set_title("Latência p99 — pior caso prático (1 em 100 frames)")
-    ax.legend(loc="upper left", ncol=2)
+    ax.legend(loc="upper right", ncol=2)
     ax.text(0.99, -0.18,
             "Erro = IC$_{95}$ da média; informativo, não IC do quantil.",
             transform=ax.transAxes, fontsize=8, color="#555555",
@@ -237,8 +219,6 @@ def fig_latency_p99(summary: pd.DataFrame, out_dir: Path) -> None:
     plt.close(fig)
     print("  ✓ fig_latency_p99.{png,pdf}")
 
-
-# Main
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Gera figuras de latência a partir dos CSVs do "
@@ -265,7 +245,6 @@ def main() -> int:
     fig_latency_cdf(per_run, summary, out_dir)
     fig_latency_p99(summary, out_dir)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

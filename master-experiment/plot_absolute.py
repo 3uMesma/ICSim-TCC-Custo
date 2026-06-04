@@ -15,25 +15,27 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-# lib.plotting (importado abaixo) faz matplotlib.use("Agg") antes
-# de qualquer import de pyplot — então é seguro importar plt aqui depois.
 
-# Configuração de estilo + paleta + labels — fonte única em lib.plotting.
-# (importar lib.plotting ANTES de pyplot — ele faz matplotlib.use("Agg"))
 from lib.plotting import (
     apply_rcparams,
-    COLORS_ABSOLUTE as COLORS,
     ATTACK_LABELS,
     SCENARIO_LABELS_ABSOLUTE as SCENARIO_LABELS,
     grouped_bar as _grouped_bar_lib,
 )
-import matplotlib.pyplot as plt  # noqa: E402 — após lib.plotting
+import matplotlib.pyplot as plt
 
 apply_rcparams()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.constants import ATTACK_ORDER, NORMALIZE_EXCLUDE
 SCENARIO_ORDER = ["cen2/gateway", "cen3/gateway", "cen3/sender", "cen3/total"]
 
+# Nova paleta de cores solicitada
+COLORS = {
+    "cen2/gateway": "#874FFF",
+    "cen3/gateway": "#F24822",
+    "cen3/sender": "#66D575",
+    "cen3/total": "#FFC943",
+}
 
 # Helpers de carregamento
 def load_absolute(master: Path) -> pd.DataFrame:
@@ -44,7 +46,6 @@ def load_absolute(master: Path) -> pd.DataFrame:
     df["sc"] = df["scenario"] + "/" + df["component"]
     return df
 
-
 def load_normalized(master: Path) -> pd.DataFrame:
     p = master / "normalized_cost.csv"
     if not p.is_file():
@@ -53,9 +54,7 @@ def load_normalized(master: Path) -> pd.DataFrame:
     df["sc"] = df["scenario"] + "/" + df["component"]
     return df
 
-
 from lib.perf_io import load_perf_csv
-
 
 def load_perf(master: Path) -> pd.DataFrame:
     p = master / "perf_data.csv"
@@ -65,16 +64,13 @@ def load_perf(master: Path) -> pd.DataFrame:
     df["sc"] = df["scenario"] + "/" + df["component"]
     return df
 
-
-# Helper: barplot agrupado com IC95 (wrapper sobre lib.plotting.grouped_bar)
-def grouped_bar(ax, df_focus, ylabel: str, title: str,
-                attack_order=None, sc_order=None, log=False):
-    """Wrapper local que injeta paleta + labels específicos deste script."""
-    _grouped_bar_lib(ax, df_focus, ylabel=ylabel, title=title,
+# Helper: barplot agrupado com IC95
+def grouped_bar(ax, df_focus, ylabel: str, attack_order=None, sc_order=None, log=False):
+    """Wrapper local que injeta paleta + labels específicos deste script (sem título)."""
+    _grouped_bar_lib(ax, df_focus, ylabel=ylabel, title=None,
                      attack_order=attack_order, sc_order=sc_order, log=log,
                      colors_map=COLORS, scenario_labels=SCENARIO_LABELS,
                      attack_labels=ATTACK_LABELS)
-
 
 # Figura 1: task-clock absoluto cen2 vs cen3 por ataque
 def fig_taskclock(absolute: pd.DataFrame, out_dir: Path) -> None:
@@ -83,11 +79,8 @@ def fig_taskclock(absolute: pd.DataFrame, out_dir: Path) -> None:
         return
     fig, ax = plt.subplots(figsize=(10, 5.0))
     grouped_bar(ax, df, ylabel="Tempo de CPU (ms, escala log)",
-                title="Custo absoluto da camada de segurança "
-                      "(task-clock, μ ± IC$_{95}$, n=20)",
                 attack_order=ATTACK_ORDER,
                 sc_order=SCENARIO_ORDER, log=True)
-    # para garantir que não tenha erro com o replay antigo
     if "replay" in NORMALIZE_EXCLUDE:
         ax.text(0.01, -0.18,
                 "$^{*}$ replay: gateway permanece ativo $>$30 s "
@@ -98,13 +91,7 @@ def fig_taskclock(absolute: pd.DataFrame, out_dir: Path) -> None:
     fig.savefig(out_dir / "fig_taskclock.pdf")
     plt.close(fig)
 
-
 # Figura 2: cycles/frame normalizado — APENAS gateways (cen2 vs cen3)
-# O sender é deliberadamente excluído desta figura: ele autentica um número
-# constante de frames legítimos (~2100 / 30 s) independentemente do ataque,
-# então normalizá-lo pelo rx_total do gateway (que varia 100× entre
-# DoS e fuzzing) produz números enganosos. O custo absoluto do sender é
-# exposto na figura de decomposição (fig_cen3_decomposition).
 def fig_cycles_per_frame(norm: pd.DataFrame, out_dir: Path) -> None:
     df = norm[(norm.metric == "cycles")
               & (~norm.attack.isin(NORMALIZE_EXCLUDE))
@@ -115,18 +102,14 @@ def fig_cycles_per_frame(norm: pd.DataFrame, out_dir: Path) -> None:
     sc_order = ["cen2/gateway", "cen3/gateway"]
     fig, ax = plt.subplots(figsize=(8.5, 4.6))
     grouped_bar(ax, df, ylabel="Ciclos por frame recebido (cycles/frame)",
-                title="Custo do gateway por frame recebido — "
-                      "Firewall vs SecOC (μ ± IC$_{95}$, n=20)",
                 attack_order=attacks, sc_order=sc_order, log=False)
 
-    # Anota razão cen3/cen2 acima de cada par para facilitar a leitura
     for i, atk in enumerate(attacks):
         c2 = df[(df.attack == atk) & (df.sc == "cen2/gateway")]
         c3 = df[(df.attack == atk) & (df.sc == "cen3/gateway")]
         if c2.empty or c3.empty:
             continue
         ratio = float(c3["mean"].iloc[0]) / float(c2["mean"].iloc[0])
-        # Posição: acima da barra mais alta
         ymax = max(float(c2["mean"].iloc[0]) + float(c2["ci95_half"].iloc[0]),
                    float(c3["mean"].iloc[0]) + float(c3["ci95_half"].iloc[0]))
         ax.text(i, ymax * 1.05, f"×{ratio:.2f}",
@@ -140,16 +123,13 @@ def fig_cycles_per_frame(norm: pd.DataFrame, out_dir: Path) -> None:
     ax.text(0.99, -0.18, footnote,
             transform=ax.transAxes, fontsize=8, color="#555555",
             ha="right")
+    ax.set_ylim(0, ax.get_ylim()[1] * 1.2)
     plt.tight_layout()
     fig.savefig(out_dir / "fig_cycles_per_frame.png")
     fig.savefig(out_dir / "fig_cycles_per_frame.pdf")
     plt.close(fig)
 
-
-# Figura 3: decomposição do cenário 3 — grouped-bar (gw e sender lado a lado)
-# Em DOIS PAINÉIS para evitar distorção:
-#    (a) DoS-py / DoS-cangen   — escala alta (10³–10⁴ ms)
-#    (b) Fuzzing / Spoofing / Replay — escala baixa (10²–10³ ms)
+# Figura 3: decomposição do cenário 3 — grouped-bar
 def fig_cen3_decomposition(absolute: pd.DataFrame, out_dir: Path) -> None:
     df = absolute[(absolute.metric == "task-clock") & (absolute.scenario == "cen3")].copy()
     if df.empty:
@@ -186,7 +166,6 @@ def fig_cen3_decomposition(absolute: pd.DataFrame, out_dir: Path) -> None:
                capsize=3, edgecolor="white",
                error_kw={"elinewidth": 0.9})
 
-        # Anota proporção do sender / total
         for i, atk in enumerate(attacks):
             total = gw_means[i] + sd_means[i]
             if total > 0:
@@ -201,15 +180,12 @@ def fig_cen3_decomposition(absolute: pd.DataFrame, out_dir: Path) -> None:
         ax.set_title(title)
         ax.set_ylabel("Tempo de CPU (ms)")
         ax.legend(loc="upper right", fontsize=9)
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.25)
 
-    fig.suptitle("Cenário 3 — decomposição do custo do SecOC "
-                 "(task-clock, μ ± IC$_{95}$, n=20)",
-                 y=1.02, fontsize=12)
     plt.tight_layout()
     fig.savefig(out_dir / "fig_cen3_decomposition.png")
     fig.savefig(out_dir / "fig_cen3_decomposition.pdf")
     plt.close(fig)
-
 
 # Figura 4: boxplot da distribuição (n=20) por ataque, task-clock
 def fig_boxplot(perf: pd.DataFrame, out_dir: Path) -> None:
@@ -222,7 +198,7 @@ def fig_boxplot(perf: pd.DataFrame, out_dir: Path) -> None:
     for ax, atk in zip(axes, ATTACK_ORDER):
         sub = df[df.attack == atk]
         groups, labels, colors = [], [], []
-        for sc in SCENARIO_ORDER[:3]:  # gw, gw, sender (sem total — não está em perf)
+        for sc in SCENARIO_ORDER[:3]: 
             ssub = sub[sub.sc == sc]
             if ssub.empty:
                 continue
@@ -242,15 +218,12 @@ def fig_boxplot(perf: pd.DataFrame, out_dir: Path) -> None:
         ax.tick_params(axis="x", rotation=30)
         if ax is axes[0]:
             ax.set_ylabel("Tempo de CPU (ms, escala log)")
-    fig.suptitle("Distribuição do task-clock por (cenário, ataque) — n=20 rodadas",
-                 y=1.02, fontsize=12)
+            
     plt.tight_layout()
     fig.savefig(out_dir / "fig_boxplot_taskclock.png")
     fig.savefig(out_dir / "fig_boxplot_taskclock.pdf")
     plt.close(fig)
 
-
-# Main
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Gera figuras a partir dos CSVs do analyze_absolute.py."
@@ -277,7 +250,6 @@ def main() -> int:
     fig_boxplot(perf, out_dir)
     print("  ✓ fig_boxplot_taskclock.{png,pdf}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
