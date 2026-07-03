@@ -36,6 +36,11 @@
 #include <linux/can/raw.h>
 
 #include "allowlist.h"
+#include "allowlist_sweep.h"
+
+#ifndef ALLOWLIST_N
+#define ALLOWLIST_N MACRO_LEN       /* default: tabela cheia (256) */
+#endif
 
 /* Configuração e estado global do gateway */
 static const char *g_iface_in = "vcan0";
@@ -183,6 +188,9 @@ int main(int argc, char **argv) {
         close(sock_in);
         return 2;
     }
+
+    policy_load_ids(g_macro_ids, ALLOWLIST_N);
+    policy_lookup_init(); /* prepara o backend */
 
     fprintf(stderr,
             "[gateway] in=%s out=%s enforce_dlc=%d enforce_rate=%d verbose=%d\n"

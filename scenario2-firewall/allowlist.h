@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define ALLOWLIST_MAX_ENTRIES 32
+#define ALLOWLIST_MAX_ENTRIES 256
 
 /* Motivos de bloqueio */
 typedef enum {
@@ -23,22 +23,36 @@ typedef struct {
     uint8_t expected_dlc;   /* DLC exato esperado */
     uint32_t min_period_us; /* período mínimo entre dois frames */
     const char *name;       /* rótulo (para logs) */
-    /* Estado interno do rate-limiter — NÃO mexer nisso em configuração. */
     uint64_t last_ts_us; /* último timestamp aceito (µs monotônicos) */
     uint64_t pass_count; /* quadros aceitos */
     uint64_t drop_count; /* quadros descartados (por qualquer motivo) */
 } policy_rule_t;
 
 extern policy_rule_t g_allowlist[];
-extern const size_t g_allowlist_size;
+extern size_t g_allowlist_size;  /* populável em tamanho N para o sweep */
 
 extern uint64_t g_drops_by_reason[5];
 
 policy_verdict_t policy_evaluate(const struct can_frame *cf, uint64_t now_us);
 
+/* Popula g_allowlist[0..n) a partir de um array de IDs (g_micro_ids/g_macro_ids
+   do allowlist_sweep.h). Chamar policy_lookup_init() logo depois. */
+void policy_load_ids(const canid_t *ids, size_t n);
+
+/* Prepara o backend de busca (ordena/indexa). Chamar uma vez após popular a
+   allowlist e antes do primeiro policy_evaluate. No-op no linear. */
+void policy_lookup_init(void);
+
 /* Helpers utilitários */
 policy_rule_t *policy_find_rule(canid_t can_id);
 const char *policy_verdict_name(policy_verdict_t v);
+
+/* Backends expostos para o teste diferencial */
+policy_rule_t *policy_find_linear(canid_t can_id);
+policy_rule_t *policy_find_binary(canid_t can_id);
+policy_rule_t *policy_find_direct(canid_t can_id);
+void policy_sort_allowlist(void); /* ordena por can_id (prep da binária) */
+void policy_build_index(void);    /* preenche o índice direto */
 
 /* Hooks de configuração de runtime (flags de linha de comando). */
 extern bool g_enforce_dlc;
