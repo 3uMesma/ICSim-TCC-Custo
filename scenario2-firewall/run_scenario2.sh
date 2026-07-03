@@ -163,6 +163,21 @@ wait "$GW_PID"     2>/dev/null || true
 
 perf_csv_append_raw "$PERF_RAW" "$PERF_DATA_CSV" \
     cen2 "$COMPONENT" "$ATTACK" "$RUN_INDEX"
+
+# --- Denominador: contadores do gateway no MESMO CSV, mesmas chaves --------
+gw_num() { grep -m1 -F "$1" "$GW_LOG" 2>/dev/null | grep -oE '[0-9]+' | tail -1; }
+for pair in \
+    "rx_total:Frames recebidos em" \
+    "fwd_total:Frames liberados" \
+    "blocked_id:Frames bloqueados (ID)" \
+    "blocked_dlc:Frames bloqueados (DLC)" \
+    "blocked_rate:Frames bloqueados (rate)"; do
+    metric="${pair%%:*}"; label="${pair#*:}"
+    val="$(gw_num "$label")"
+    [[ -n "$val" ]] && printf 'cen2;%s;%s;%s;%s;%s;\n' \
+        "$COMPONENT" "$ATTACK" "$RUN_INDEX" "$metric" "$val" >> "$PERF_DATA_CSV"
+done
+
 echo "[ok] experiment concluído (rep=$RUN_INDEX → $PERF_DATA_CSV)."
 echo
 echo "======= gateway (resumo) ======="
