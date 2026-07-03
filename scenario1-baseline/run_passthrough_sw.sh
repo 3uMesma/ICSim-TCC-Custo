@@ -28,6 +28,9 @@ mkdir -p "$RESULTS"
 
 PERF_DATA_CSV="${PERF_DATA_CSV:-$HERE/results-sw/perf_data.csv}"
 RUN_INDEX="${RUN_INDEX:-1}"
+
+# Binário do baseline (D0): default clássico; FD via PT_BIN=$HERE/passthrough-fd.
+PT_BIN="${PT_BIN:-$HERE/passthrough}"
 PERF_EVENTS="${PERF_EVENTS:-$PERF_EVENTS_DEFAULT}"
 ATTACK_PADDING="${ATTACK_PADDING:-3}"
 STABILIZATION_DELAY="${STABILIZATION_DELAY:-1}"
@@ -42,7 +45,7 @@ echo "[info] ataque=$ATTACK duração=${DURATION}s (system-wide baseline)"
 
 # Subir passthrough em background — papel funcional idêntico ao gateway/cen2.
 PT_LOG="$RESULTS/passthrough.log"
-"$HERE/passthrough" -i vcan0 -o vcan1 >"$PT_LOG" 2>&1 &
+"$PT_BIN" -i vcan0 -o vcan1 >"$PT_LOG" 2>&1 &
 PT_PID=$!
 sleep 0.3
 

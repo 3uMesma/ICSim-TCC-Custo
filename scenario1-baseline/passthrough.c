@@ -5,6 +5,12 @@
  * frame recebido em vcan0 para vcan1 SEM aplicar nenhuma política de
  * segurança. Existe exclusivamente para que a comparação entre cenários seja justa.
  *
+ * Compila em dois modos (Trilha B / D0):
+ *   - clássico (default): struct can_frame, socket CAN 2.0.
+ *   - CAN FD (-DFD_MODE): struct canfd_frame + CAN_RAW_FD_FRAMES.
+ * O par {passthrough, passthrough-fd} isola o delta de I/O clássico↔FD
+ * (struct de 16 B vs 72 B transferida por syscall).
+ *
  * Modelo arquitetural (idêntico ao cen2, apenas sem allowlist):
  * ---------------------------------------------------------------------------
  *
@@ -37,6 +43,14 @@
 #include <linux/can.h>
 #include <linux/can/raw.h>
 
+#ifdef FD_MODE
+typedef struct canfd_frame frame_t;
+#  define FRAME_LEN(f)  ((f).len)
+#else
+typedef struct can_frame frame_t;
+#  define FRAME_LEN(f)  ((f).can_dlc)
+#endif
+
 /* Configuração e estado global */
 static const char *g_iface_in = "vcan0";
 static const char *g_iface_out = "vcan1";
@@ -45,8 +59,8 @@ static volatile sig_atomic_t g_stop = 0;
 
 static uint64_t g_rx_total = 0;
 static uint64_t g_fwd_total = 0;
-static uint64_t g_drop_fd = 0;      /* descartes por tamanho inválido (CAN FD) */
-static uint64_t g_drop_write = 0;   /* falhas em write() — diagnóstico apenas  */
+static uint64_t g_drop_fd = 0;      /* descartes por tamanho de frame inválido  */
+static uint64_t g_drop_write = 0;   /* falhas em write() — diagnóstico apenas    */
 
 /* Funções auxiliares (idênticas à gateway.c para manter comparabilidade) */
 static uint64_t now_monotonic_us(void) {
@@ -61,6 +75,17 @@ static int open_can_socket(const char *iface) {
         perror("socket(PF_CAN)");
         return -1;
     }
+
+#ifdef FD_MODE
+    int enable_fd = 1;
+    if (setsockopt(sock, SOL_CAN_RAW, CAN_RAW_FD_FRAMES,
+                   &enable_fd, sizeof(enable_fd)) < 0) {
+        fprintf(stderr, "setsockopt(CAN_RAW_FD_FRAMES,%s): %s\n",
+                iface, strerror(errno));
+        close(sock);
+        return -1;
+    }
+#endif
 
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
@@ -111,7 +136,7 @@ static void print_stats(double elapsed_s) {
             " Frames bloqueados (ID) ........... 0\n"
             " Frames bloqueados (DLC) .......... 0\n"
             " Frames bloqueados (rate) ......... 0\n"
-            " Descartes por tamanho (CAN-FD) ... %" PRIu64 "\n"
+            " Descartes por tamanho de frame ... %" PRIu64 "\n"
             " Falhas em write() ................ %" PRIu64 "\n"
             "--------------------------------------------------------\n",
             elapsed_s, g_iface_in, g_rx_total, g_fwd_total,
@@ -175,7 +200,7 @@ int main(int argc, char **argv) {
             g_iface_in, g_iface_out, g_verbose, (int)getpid());
 
     struct pollfd pfd = {.fd = sock_in, .events = POLLIN};
-    struct can_frame cf;
+    frame_t cf;
     uint64_t t_start_us = now_monotonic_us();
 
     while (!g_stop) {
@@ -198,12 +223,20 @@ int main(int argc, char **argv) {
             perror("read");
             break;
         }
+#ifdef FD_MODE
+        /* Aceita tanto frame clássico (CAN_MTU) quanto FD (CANFD_MTU). */
+        if (n != (ssize_t)CAN_MTU && n != (ssize_t)CANFD_MTU) {
+            g_drop_fd++;
+            continue;
+        }
+#else
         if (n != (ssize_t)sizeof(cf)) {
             /* CAN FD vem com sizeof(canfd_frame); descartamos para alinhar
              * com o modelo de ameaça do gateway (apenas CAN 2.0 clássico). */
             g_drop_fd++;
             continue;
         }
+#endif
 
         g_rx_total++;
 
@@ -218,8 +251,8 @@ int main(int argc, char **argv) {
         }
 
         if (g_verbose) {
-            fprintf(stderr, "[pt] id=0x%03X dlc=%u -> FWD\n",
-                    cf.can_id & CAN_SFF_MASK, cf.can_dlc);
+            fprintf(stderr, "[pt] id=0x%03X len=%u -> FWD\n",
+                    cf.can_id & CAN_SFF_MASK, FRAME_LEN(cf));
         }
     }
 

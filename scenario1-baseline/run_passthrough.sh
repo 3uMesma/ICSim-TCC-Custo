@@ -35,6 +35,11 @@ mkdir -p "$RESULTS"
 PERF_DATA_CSV="${PERF_DATA_CSV:-$HERE/results/perf_data.csv}"
 RUN_INDEX="${RUN_INDEX:-1}"
 
+# Binário e rótulo do componente (D0): default = clássico. Para a variante
+# FD do baseline: PT_BIN=$HERE/passthrough-fd PT_COMPONENT=passthrough-fd
+PT_BIN="${PT_BIN:-$HERE/passthrough}"
+PT_COMPONENT="${PT_COMPONENT:-passthrough}"
+
 echo "[info] resultados -> $RESULTS"
 echo "[info] ataque=$ATTACK duração=${DURATION}s (process-attached baseline)"
 
@@ -44,7 +49,7 @@ echo "[info] ataque=$ATTACK duração=${DURATION}s (process-attached baseline)"
 
 # Subir passthrough em background e capturar PID
 PT_LOG="$RESULTS/passthrough.log"
-"$HERE/passthrough" -i vcan0 -o vcan1 >"$PT_LOG" 2>&1 &
+"$PT_BIN" -i vcan0 -o vcan1 >"$PT_LOG" 2>&1 &
 PT_PID=$!
 sleep 0.3
 
@@ -153,7 +158,7 @@ wait "$PT_PID"     2>/dev/null || true
 
 # Rotula como (baseline, passthrough) no CSV unificado.
 perf_csv_append_raw "$PERF_RAW" "$PERF_DATA_CSV" \
-    baseline passthrough "$ATTACK" "$RUN_INDEX"
+    baseline "$PT_COMPONENT" "$ATTACK" "$RUN_INDEX"
 
 echo "[ok] experiment concluído (rep=$RUN_INDEX → $PERF_DATA_CSV)."
 echo
