@@ -1,5 +1,5 @@
 /*
- * secoc_gateway.c - Security Gateway com verificação SecOC-Lite
+ * secoc_gateway.c - Security Gateway com verificação SecOC (CAN FD)
  *
  *   vcan0  ──►  [ secoc_gateway (verifica MAC e FV) ]  ──►  vcan1
  *   (arame)                                                (zona crítica)
@@ -9,7 +9,7 @@
  * encaminhados — *em forma plain* — para vcan1, onde o ICSim os consome
  * sem qualquer modificação.
  *
- * Diferenças do cenário 2: substitui as 3 camadas sintáticas (ID/DLC/Rate) 
+ * Diferenças do cenário 2: substitui as 3 camadas sintáticas (ID/DLC/Rate)
  * por 3 camadas criptográficas (ID+DLC/FV/MAC).
  */
 
@@ -56,6 +56,15 @@ static int open_can_socket(const char *iface)
 {
     int sock = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (sock < 0) { perror("socket(PF_CAN)"); return -1; }
+
+    int enable_fd = 1;
+    if (setsockopt(sock, SOL_CAN_RAW, CAN_RAW_FD_FRAMES,
+                   &enable_fd, sizeof(enable_fd)) < 0) {
+        fprintf(stderr, "setsockopt(CAN_RAW_FD_FRAMES,%s): %s\n",
+                iface, strerror(errno));
+        close(sock);
+        return -1;
+    }
 
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
@@ -114,7 +123,7 @@ static void print_stats(double elapsed_s)
         " Rejeições por DLC ................ %" PRIu64 "\n"
         " Rejeições por FV (freshness) ..... %" PRIu64 "\n"
         " Rejeições por MAC ................ %" PRIu64 "\n"
-        " Rejeições por EFF/CAN-FD ......... %" PRIu64 "\n"
+        " Rejeições por EFF (ID estend.) ... %" PRIu64 "\n"
         " [check] Σ verdicts == rx_total ... %s (Σ=%" PRIu64 ")\n"
         "--------------------------------------------------------\n",
         elapsed_s,
@@ -159,8 +168,8 @@ static void print_stats(double elapsed_s)
  * Verify com ablação opcional — equivalente ao secoc_verify() normal,
  * mas honra as flags --skip-mac e --skip-fv. 
 */
-static secoc_result_t verify_with_ablation(const struct can_frame *secured,
-                                           struct can_frame *plain)
+static secoc_result_t verify_with_ablation(const struct canfd_frame *secured,
+                                           struct canfd_frame *plain)
 {
     if (secured->can_id & CAN_EFF_FLAG) {
         g_secoc_counts[SECOC_ERR_FD]++;
@@ -173,8 +182,8 @@ static secoc_result_t verify_with_ablation(const struct can_frame *secured,
         return SECOC_ERR_ID;
     }
 
-    uint8_t expect_dlc = (uint8_t)(a->expected_plain_len + SECOC_OVERHEAD);
-    if (secured->can_dlc != expect_dlc) {
+    uint8_t expect_len = (uint8_t)(a->expected_plain_len + SECOC_OVERHEAD);
+    if (secured->len != expect_len) {
         a->rej_len++;
         g_secoc_counts[SECOC_ERR_LEN]++;
         return SECOC_ERR_LEN;
@@ -185,23 +194,21 @@ static secoc_result_t verify_with_ablation(const struct can_frame *secured,
         return secoc_verify(secured, plain);
     }
 
-    /* Caminho com ablação. */
-    uint8_t  fv_low   = secured->data[a->expected_plain_len];
+    /* Caminho com ablação. FV completo (4B BE) lido direto do fio. */
+    const uint8_t *fvp    = &secured->data[a->expected_plain_len];
     const uint8_t *mac_rx = &secured->data[a->expected_plain_len + SECOC_FV_LEN];
     (void)mac_rx;
 
-    uint32_t fv_full;
+    uint32_t fv_recv = ((uint32_t)fvp[0] << 24) | ((uint32_t)fvp[1] << 16)
+                     | ((uint32_t)fvp[2] <<  8) |  (uint32_t)fvp[3];
+
     if (!g_skip_fv) {
-        uint32_t base = a->fv_rx_expected & 0xFFFFFF00u;
-        fv_full = base | fv_low;
-        if (fv_full < a->fv_rx_expected) fv_full += 0x100;
-        if (fv_full - a->fv_rx_expected >= SECOC_FRESHNESS_WINDOW) {
+        uint32_t delta = fv_recv - a->fv_rx_expected;
+        if (delta >= SECOC_FRESHNESS_WINDOW) {
             a->rej_fv++;
             g_secoc_counts[SECOC_ERR_FV]++;
             return SECOC_ERR_FV;
         }
-    } else {
-        fv_full = a->fv_rx_expected;
     }
 
     if (!g_skip_mac) {
@@ -210,10 +217,10 @@ static secoc_result_t verify_with_ablation(const struct can_frame *secured,
         auth_in[1] = (uint8_t)((secured->can_id & CAN_SFF_MASK) >> 16);
         auth_in[2] = (uint8_t)((secured->can_id & CAN_SFF_MASK) >> 8);
         auth_in[3] = (uint8_t)(secured->can_id & CAN_SFF_MASK);
-        auth_in[4] = (uint8_t)(fv_full >> 24);
-        auth_in[5] = (uint8_t)(fv_full >> 16);
-        auth_in[6] = (uint8_t)(fv_full >> 8);
-        auth_in[7] = (uint8_t)(fv_full);
+        auth_in[4] = (uint8_t)(fv_recv >> 24);
+        auth_in[5] = (uint8_t)(fv_recv >> 16);
+        auth_in[6] = (uint8_t)(fv_recv >> 8);
+        auth_in[7] = (uint8_t)(fv_recv);
         memcpy(auth_in + 8, secured->data, a->expected_plain_len);
 
         uint8_t tag[16];
@@ -230,15 +237,16 @@ static secoc_result_t verify_with_ablation(const struct can_frame *secured,
         }
     }
 
-    a->fv_rx_expected = fv_full + 1;
+    a->fv_rx_expected = fv_recv + 1;
     a->accepted++;
     g_secoc_counts[SECOC_OK]++;
 
-    plain->can_id  = secured->can_id;
-    plain->can_dlc = a->expected_plain_len;
+    plain->can_id = secured->can_id;
+    plain->flags  = secured->flags;
+    plain->len    = a->expected_plain_len;
     memcpy(plain->data, secured->data, a->expected_plain_len);
     memset(plain->data + a->expected_plain_len, 0,
-           CAN_MAX_DLEN - a->expected_plain_len);
+           CANFD_MAX_DLEN - a->expected_plain_len);
     return SECOC_OK;
 }
 
@@ -285,7 +293,7 @@ int main(int argc, char **argv)
         g_secoc_assocs_size);
 
     struct pollfd pfd = { .fd = sock_in, .events = POLLIN };
-    struct can_frame cf_in, cf_out;
+    struct canfd_frame cf_in, cf_out;
     uint64_t t_start_us = now_monotonic_us();
 
     while (!g_stop) {
@@ -295,14 +303,15 @@ int main(int argc, char **argv)
 
         ssize_t n = read(sock_in, &cf_in, sizeof(cf_in));
         if (n <= 0) { if (errno == EINTR) continue; perror("read"); break; }
-        if (n != (ssize_t)sizeof(cf_in)) continue;
+        /* Aceita tanto frame clássico (CAN_MTU) quanto FD (CANFD_MTU). */
+        if (n != (ssize_t)CAN_MTU && n != (ssize_t)CANFD_MTU) continue;
 
         g_rx_total++;
 
         secoc_result_t r = verify_with_ablation(&cf_in, &cf_out);
 
         if (r == SECOC_OK) {
-            const struct can_frame *to_send = g_strip ? &cf_out : &cf_in;
+            const struct canfd_frame *to_send = g_strip ? &cf_out : &cf_in;
             if (write(sock_out, to_send, sizeof(*to_send)) !=
                 (ssize_t)sizeof(*to_send)) {
                 if (!g_stop) perror("write(sock_out)");
@@ -312,8 +321,8 @@ int main(int argc, char **argv)
         }
 
         if (g_verbose) {
-            fprintf(stderr, "[gw] id=0x%03X dlc=%u -> %s\n",
-                cf_in.can_id & CAN_SFF_MASK, cf_in.can_dlc,
+            fprintf(stderr, "[gw] id=0x%03X len=%u -> %s\n",
+                cf_in.can_id & CAN_SFF_MASK, cf_in.len,
                 secoc_result_name(r));
         }
     }

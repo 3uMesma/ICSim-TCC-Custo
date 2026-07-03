@@ -14,10 +14,19 @@
 
 #include <stddef.h>
 
+/* Payload do SPEED varrido no experimento FD (Trilha B). Default = 5
+ * (valor natural do ICSim); sobrescrito por ponto do sweep com
+ * -DSWEEP_PLAIN_LEN=<len>, análogo ao -DALLOWLIST_N da Trilha A. */
+#ifndef SWEEP_PLAIN_LEN
+#define SWEEP_PLAIN_LEN 5
+#endif
+_Static_assert(SWEEP_PLAIN_LEN <= SECOC_MAX_PLAIN_LEN,
+               "SWEEP_PLAIN_LEN excede o payload plain máximo do CAN FD (52 B)");
+
 secoc_assoc_t g_secoc_assocs[SECOC_MAX_ASSOCS] = {
     {
         .data_id            = CAN_ID_SPEED,
-        .expected_plain_len = 5,      /* SPEED: 5 bytes úteis no ICSim */
+        .expected_plain_len = SWEEP_PLAIN_LEN,  /* varrido no experimento FD */
         .name               = "SPEED",
         .fv_tx              = 0,
         .fv_rx_expected     = 0,

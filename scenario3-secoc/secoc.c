@@ -1,9 +1,13 @@
 /*
- * secoc.c - Camada SecOC-Lite: protect/verify sobre frames CAN.
+ * secoc.c - Camada SecOC (CAN FD): protect/verify sobre frames CAN FD.
  *
  * Formato da "authentication input" (entrada do CMAC):
  *
- *     DataID (4B BE)  || FV_full (4B BE)  || payload (plain)
+ *     DataID (4B BE)  || FV_full (4B BE)  || payload (plain, até 52B)
+ *
+ * Formato do frame "secured" no fio:
+ *
+ *     [payload (até 52B)] [FV_full (4B BE)] [MAC (8B)]   -> len = plain + 12
  */
 
 #include "secoc.h"
@@ -58,6 +62,13 @@ static inline void put_be32(uint8_t *out, uint32_t v)
     out[3] = (uint8_t)(v);
 }
 
+/* Lê um uint32 big-endian de um buffer (FV completo vindo do fio). */
+static inline uint32_t get_be32(const uint8_t *in)
+{
+    return ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16)
+         | ((uint32_t)in[2] <<  8) |  (uint32_t)in[3];
+}
+
 /* 
  * Monta a "authentication input" e retorna o seu comprimento.
  * O buffer auth_in precisa ter pelo menos 8 + payload_len bytes.
@@ -75,11 +86,11 @@ static size_t build_auth_input(uint8_t *auth_in,
 }
 
 /* Transmissor: pega um frame "plain" e monta o frame "secured".*/
-secoc_result_t secoc_protect(const struct can_frame *plain,
-                             struct can_frame *secured)
+secoc_result_t secoc_protect(const struct canfd_frame *plain,
+                             struct canfd_frame *secured)
 {
     if (plain->can_id & CAN_EFF_FLAG) {
-        /* CAN FD / Extended frames estão fora do perfil deste TCC. */
+        /* Perfil = ID 11-bit (SFF); IDs estendidos (29-bit) ficam fora. */
         g_secoc_counts[SECOC_ERR_FD]++;
         return SECOC_ERR_FD;
     }
@@ -90,7 +101,7 @@ secoc_result_t secoc_protect(const struct can_frame *plain,
         return SECOC_ERR_ID;
     }
 
-    if (plain->can_dlc != a->expected_plain_len) {
+    if (plain->len != a->expected_plain_len) {
         a->rej_len++;
         g_secoc_counts[SECOC_ERR_LEN]++;
         return SECOC_ERR_LEN;
@@ -99,25 +110,25 @@ secoc_result_t secoc_protect(const struct can_frame *plain,
     /* FV a usar = fv_tx atual; incrementa após sucesso. */
     uint32_t fv_full = a->fv_tx;
 
-    /* Monta entrada do CMAC em pilha. 8 bytes de cabeçalho + até 5 de
-     * payload = 13 bytes máximo no perfil deste TCC. */
+    /* Monta entrada do CMAC em pilha. 8 bytes de cabeçalho + até 52 de
+     * payload = 60 bytes máximo (4 blocos AES). */
     uint8_t auth_in[8 + SECOC_MAX_PLAIN_LEN];
     size_t  auth_len = build_auth_input(auth_in,
                                         plain->can_id & CAN_SFF_MASK,
                                         fv_full,
                                         plain->data,
-                                        plain->can_dlc);
+                                        plain->len);
 
     uint8_t tag[16];
     aes_cmac_ctx(&g_ctx, auth_in, auth_len, tag);
 
-    /* Monta o frame secured: [payload][FV_low8][MAC_hi16] */
-    secured->can_id  = plain->can_id;
-    secured->can_dlc = (uint8_t)(plain->can_dlc + SECOC_OVERHEAD);
-    memcpy(secured->data, plain->data, plain->can_dlc);
-    secured->data[plain->can_dlc + 0] = (uint8_t)(fv_full & 0xFF);
-    secured->data[plain->can_dlc + 1] = tag[0];
-    secured->data[plain->can_dlc + 2] = tag[1];
+    /* Monta o frame secured: [payload][FV_full 4B BE][MAC 8B] */
+    secured->can_id = plain->can_id;
+    secured->flags  = plain->flags;
+    secured->len    = (uint8_t)(plain->len + SECOC_OVERHEAD);
+    memcpy(secured->data, plain->data, plain->len);
+    put_be32(&secured->data[plain->len], fv_full);
+    memcpy(&secured->data[plain->len + SECOC_FV_LEN], tag, SECOC_MAC_LEN);
 
     /* Atualiza estado do transmissor só em caso de sucesso. */
     a->fv_tx++;
@@ -126,34 +137,9 @@ secoc_result_t secoc_protect(const struct can_frame *plain,
     return SECOC_OK;
 }
 
-/* 
- * Expansão de FV truncado para 32 bits: escolhe o valor mais próximo do
- * expected_full, olhando apenas os 8 bits baixos recebidos.
- *
- * Segue a janela SWS_SecOC_00034: aceitamos qualquer valor em
- *   [expected, expected + SECOC_FRESHNESS_WINDOW - 1]
- * A expansão resolve o rollover procurando no candidato "próximo".
-*/
-static bool expand_fv(uint32_t expected_full,
-                      uint8_t received_low8,
-                      uint32_t *out_full)
-{
-    uint32_t base   = expected_full & 0xFFFFFF00u;
-    uint32_t cand   = base | received_low8;
-    if (cand < expected_full) {
-        /* Rolou o byte baixo. Tente o próximo. */
-        cand += 0x100;
-    }
-    if (cand - expected_full >= SECOC_FRESHNESS_WINDOW) {
-        return false;  /* fora da janela */
-    }
-    *out_full = cand;
-    return true;
-}
-
 /* Receptor: valida um frame secured e, se autenticado, entrega o plain. */
-secoc_result_t secoc_verify(const struct can_frame *secured,
-                            struct can_frame *plain)
+secoc_result_t secoc_verify(const struct canfd_frame *secured,
+                            struct canfd_frame *plain)
 {
     if (secured->can_id & CAN_EFF_FLAG) {
         g_secoc_counts[SECOC_ERR_FD]++;
@@ -166,29 +152,31 @@ secoc_result_t secoc_verify(const struct can_frame *secured,
         return SECOC_ERR_ID;
     }
 
-    uint8_t secured_dlc = secured->can_dlc;
-    uint8_t expect_dlc  = (uint8_t)(a->expected_plain_len + SECOC_OVERHEAD);
-    if (secured_dlc != expect_dlc) {
+    uint8_t expect_len = (uint8_t)(a->expected_plain_len + SECOC_OVERHEAD);
+    if (secured->len != expect_len) {
         a->rej_len++;
         g_secoc_counts[SECOC_ERR_LEN]++;
         return SECOC_ERR_LEN;
     }
 
-    uint8_t  fv_low   = secured->data[a->expected_plain_len];
-    const uint8_t *mac_rx = &secured->data[a->expected_plain_len + SECOC_FV_LEN];
-
-    uint32_t fv_full;
-    if (!expand_fv(a->fv_rx_expected, fv_low, &fv_full)) {
+    /* FV completo (4B) lido direto do fio — sem reconstrução de rollover.
+     * Janela: aceita fv_recv em [expected, expected + WINDOW - 1]. A
+     * subtração unsigned trata replay (fv < expected -> delta enorme). */
+    uint32_t fv_recv = get_be32(&secured->data[a->expected_plain_len]);
+    uint32_t delta   = fv_recv - a->fv_rx_expected;
+    if (delta >= SECOC_FRESHNESS_WINDOW) {
         a->rej_fv++;
         g_secoc_counts[SECOC_ERR_FV]++;
         return SECOC_ERR_FV;
     }
 
-    /* Recalcula o MAC com o FV *expandido*. */
+    const uint8_t *mac_rx = &secured->data[a->expected_plain_len + SECOC_FV_LEN];
+
+    /* Recalcula o MAC com o FV recebido. */
     uint8_t auth_in[8 + SECOC_MAX_PLAIN_LEN];
     size_t  auth_len = build_auth_input(auth_in,
                                         secured->can_id & CAN_SFF_MASK,
-                                        fv_full,
+                                        fv_recv,
                                         secured->data,
                                         a->expected_plain_len);
 
@@ -207,16 +195,17 @@ secoc_result_t secoc_verify(const struct can_frame *secured,
     }
 
     /* Autenticação OK. Atualiza estado do receptor. */
-    a->fv_rx_expected = fv_full + 1;
+    a->fv_rx_expected = fv_recv + 1;
     a->accepted++;
     g_secoc_counts[SECOC_OK]++;
 
-    plain->can_id  = secured->can_id;
-    plain->can_dlc = a->expected_plain_len;
+    plain->can_id = secured->can_id;
+    plain->flags  = secured->flags;
+    plain->len    = a->expected_plain_len;
     memcpy(plain->data, secured->data, a->expected_plain_len);
     /* Zera o resto para evitar vazar bytes da parte autenticada. */
     memset(plain->data + a->expected_plain_len, 0,
-           CAN_MAX_DLEN - a->expected_plain_len);
+           CANFD_MAX_DLEN - a->expected_plain_len);
 
     return SECOC_OK;
 }

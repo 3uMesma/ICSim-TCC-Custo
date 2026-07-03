@@ -1,5 +1,5 @@
 /*
- * secoc_sender.c - ECU "autenticadora"
+ * secoc_sender.c - ECU "autenticadora" (CAN FD)
  *
  *   +------------+   +------------+   +-----------+   +-------------+   +----------+
  *   | controls.c |-->| vcan_trust |-->| secoc_    |-->|   vcan0     |-->| secoc_   |
@@ -70,6 +70,15 @@ static int open_can_socket(const char *iface)
 {
     int sock = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (sock < 0) { perror("socket(PF_CAN)"); return -1; }
+
+    int enable_fd = 1;
+    if (setsockopt(sock, SOL_CAN_RAW, CAN_RAW_FD_FRAMES,
+                   &enable_fd, sizeof(enable_fd)) < 0) {
+        fprintf(stderr, "setsockopt(CAN_RAW_FD_FRAMES,%s): %s\n",
+                iface, strerror(errno));
+        close(sock);
+        return -1;
+    }
 
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
@@ -166,7 +175,7 @@ int main(int argc, char **argv)
         SECOC_DEMO_KEY[SECOC_KEY_LEN - 1]);
 
     struct pollfd pfd = { .fd = sock_in, .events = POLLIN };
-    struct can_frame plain, secured;
+    struct canfd_frame plain, secured;
     uint64_t t_start_us = now_monotonic_us();
 
     while (!g_stop) {
@@ -176,15 +185,16 @@ int main(int argc, char **argv)
 
         ssize_t n = read(sock_in, &plain, sizeof(plain));
         if (n <= 0) { if (errno == EINTR) continue; perror("read"); break; }
-        if (n != (ssize_t)sizeof(plain)) continue;
+        /* Aceita tanto frame clássico (CAN_MTU) quanto FD (CANFD_MTU). */
+        if (n != (ssize_t)CAN_MTU && n != (ssize_t)CANFD_MTU) continue;
         g_rx_total++;
 
         secoc_result_t r = secoc_protect(&plain, &secured);
         if (r != SECOC_OK) {
             g_tx_dropped++;
             if (g_verbose) {
-                fprintf(stderr, "[sender] drop id=0x%03X dlc=%u reason=%s\n",
-                    plain.can_id & CAN_SFF_MASK, plain.can_dlc,
+                fprintf(stderr, "[sender] drop id=0x%03X len=%u reason=%s\n",
+                    plain.can_id & CAN_SFF_MASK, plain.len,
                     secoc_result_name(r));
             }
             continue;
@@ -197,10 +207,10 @@ int main(int argc, char **argv)
         g_tx_ok++;
 
         if (g_verbose) {
-            fprintf(stderr, "[sender] auth id=0x%03X dlc=%u -> dlc=%u fv=%u\n",
+            fprintf(stderr, "[sender] auth id=0x%03X len=%u -> len=%u fv_hi=%u\n",
                 plain.can_id & CAN_SFF_MASK,
-                plain.can_dlc, secured.can_dlc,
-                (unsigned)secured.data[plain.can_dlc]);
+                plain.len, secured.len,
+                (unsigned)secured.data[plain.len]);
         }
     }
 

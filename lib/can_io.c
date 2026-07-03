@@ -29,6 +29,15 @@ int can_io_open(const char *iface) {
         return -1;
     }
 
+    int enable_fd = 1;
+    if (setsockopt(sock, SOL_CAN_RAW, CAN_RAW_FD_FRAMES,
+                   &enable_fd, sizeof(enable_fd)) < 0) {
+        fprintf(stderr, "setsockopt(CAN_RAW_FD_FRAMES,%s): %s\n",
+                iface, strerror(errno));
+        close(sock);
+        return -1;
+    }
+
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, iface, IFNAMSIZ - 1);

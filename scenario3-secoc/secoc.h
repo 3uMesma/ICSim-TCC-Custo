@@ -8,10 +8,10 @@
 #include <linux/can.h>
 
 #define SECOC_KEY_LEN            16u    /* AES-128 */
-#define SECOC_MAC_LEN             2u    /* 16 bits truncados */
-#define SECOC_FV_LEN              1u    /* 8 bits truncados */
-#define SECOC_OVERHEAD           (SECOC_FV_LEN + SECOC_MAC_LEN) /* 3 B */
-#define SECOC_MAX_PLAIN_LEN      (CAN_MAX_DLEN - SECOC_OVERHEAD) /* 5 B */
+#define SECOC_MAC_LEN             8u    /* 64 bits transmitidos (perfil AUTOSAR 24-96) */
+#define SECOC_FV_LEN              4u    /* 32 bits transmitidos por inteiro */
+#define SECOC_OVERHEAD           (SECOC_FV_LEN + SECOC_MAC_LEN) /* 12 B */
+#define SECOC_MAX_PLAIN_LEN      (CANFD_MAX_DLEN - SECOC_OVERHEAD) /* 52 B */
 
 #define SECOC_FRESHNESS_WINDOW  128u    /* tolera jitter/perdas no receptor */
 #define SECOC_MAX_ASSOCS          8u    /* capacidade estática da tabela */
@@ -48,10 +48,10 @@ typedef struct {
 typedef enum {
     SECOC_OK          = 0,
     SECOC_ERR_ID      = 1,    /* DataID não associado (sem rule) */
-    SECOC_ERR_LEN     = 2,    /* DLC incompatível com o perfil esperado */
+    SECOC_ERR_LEN     = 2,    /* len incompatível com o perfil esperado */
     SECOC_ERR_MAC     = 3,    /* tag MAC inválido (ataque ou corrupção) */
     SECOC_ERR_FV      = 4,    /* FV fora da janela (replay ou dessync) */
-    SECOC_ERR_FD      = 5,    /* CAN FD ignorado pelo perfil */
+    SECOC_ERR_FD      = 5,    /* ID estendido (29-bit) fora do perfil SFF */
 } secoc_result_t;
 
 /* Tabela de associações — definida em secoc_assocs.c */ 
@@ -97,25 +97,24 @@ const char *secoc_result_name(secoc_result_t r);
 
 /* --- Transmissor -------------------------------------------------------
  *
- * Recebe um frame CAN "plain" (o que o controls.c envia hoje) e produz
- * o frame "secured" correspondente, com FV e MAC anexados. Incrementa
- * a->fv_tx.
+ * Recebe um frame CAN FD "plain" e produz o frame "secured"
+ * correspondente, com FV e MAC anexados. Incrementa a->fv_tx.
  *
- * Retorno: SECOC_OK ou SECOC_ERR_LEN
+ * Retorno: SECOC_OK, SECOC_ERR_ID, SECOC_ERR_LEN ou SECOC_ERR_FD
  */
-secoc_result_t secoc_protect(const struct can_frame *plain,
-                             struct can_frame *secured);
+secoc_result_t secoc_protect(const struct canfd_frame *plain,
+                             struct canfd_frame *secured);
 
 /* --- Receptor ----------------------------------------------------------
  *
- * Recebe um frame CAN "secured" da rede e, se todas as verificações
- * passarem, preenche `plain` com o payload original. Atualiza a->fv_rx_
- * expected e contadores correspondentes.
+ * Recebe um frame CAN FD "secured" da rede e, se todas as verificações
+ * passarem, preenche `plain` com o payload original. Atualiza
+ * a->fv_rx_expected e contadores correspondentes.
  *
  * Em caso de falha retorna o verdict apropriado; `plain` permanece em
  * estado indefinido.
  */
-secoc_result_t secoc_verify(const struct can_frame *secured,
-                            struct can_frame *plain);
+secoc_result_t secoc_verify(const struct canfd_frame *secured,
+                            struct canfd_frame *plain);
 
-#endif 
+#endif

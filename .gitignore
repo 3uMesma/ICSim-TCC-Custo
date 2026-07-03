@@ -24,3 +24,4 @@ allowlist-scaling/microbench
 scenario3-secoc/secoc_sender
 scenario3-secoc/secoc_gateway
 scenario3-secoc/test_cmac
+scenario3-secoc/smoke_fd.c
