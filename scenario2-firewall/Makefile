@@ -4,9 +4,7 @@ CFLAGS   += -I../lib
 
 # --- Extensão LARS (Fase 1) -----------------------------------------------
 # Header gerado pelo synth_padding.py (arranjos g_micro_ids / g_macro_ids).
-# Grafia: allowlist-scaling (um "l"). Ajuste SWEEP_DIR se você NÃO usou a
-# subpasta generated/ (ex.: SWEEP_DIR := ../allowlist-scaling).
-SWEEP_DIR := ../allowlist-scaling/generated
+SWEEP_DIR := ../allowlist-scaling/
 SWEEP     := $(SWEEP_DIR)/allowlist_sweep.h
 CFLAGS    += -I$(SWEEP_DIR)
 # --------------------------------------------------------------------------
