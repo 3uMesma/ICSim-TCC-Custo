@@ -4,9 +4,6 @@
 #   3) Dispara o ataque escolhido contra vcan0 por --duration segundos
 #   4) Finaliza tudo, coleta o relatório do gateway e o CSV do perf
 #
-# Uso:
-#   sudo ./run_scenario2.sh <attack> [duration_s] [extra_gateway_flags...]
-#
 # Ataques suportados: dos-py | fuzzing | replay | spoofing | dos-cangen | idle
 #   - "idle" roda sem ataque (baseline passivo da carga do gateway)
 #   - "cangen" usa a ferramenta nativa do can-utils
@@ -42,6 +39,7 @@ mkdir -p "$RESULTS"
 . "$HERE/../lib/perf_csv.sh"
 PERF_DATA_CSV="${PERF_DATA_CSV:-$HERE/results/perf_data.csv}"
 RUN_INDEX="${RUN_INDEX:-1}"
+COMPONENT="${COMPONENT:-gateway}"
 
 echo "[info] resultados -> $RESULTS"
 echo "[info] ataque=$ATTACK duração=${DURATION}s"
@@ -51,7 +49,8 @@ echo "[info] ataque=$ATTACK duração=${DURATION}s"
 
 # Subir gateway em background e capturar PID
 GW_LOG="$RESULTS/gateway.log"
-"$HERE/gateway" -i vcan0 -o vcan1 "${EXTRA_GATEWAY_FLAGS[@]}" >"$GW_LOG" 2>&1 &
+GATEWAY_BIN="${GATEWAY_BIN:-$HERE/gateway}"
+"$GATEWAY_BIN" -i vcan0 -o vcan1 "${EXTRA_GATEWAY_FLAGS[@]}" >"$GW_LOG" 2>&1 &
 GW_PID=$!
 sleep 0.3
 
@@ -144,6 +143,12 @@ case "$ATTACK" in
         sleep "$DURATION"
         kill "$CANGEN_PID" 2>/dev/null || true
         ;;
+    legit-flood)
+        cangen vcan0 -I 244 -L 5 -g 0 &
+        CANGEN_PID=$!
+        sleep "$DURATION"
+        kill "$CANGEN_PID" 2>/dev/null || true
+        ;;
     *)
         echo "[erro] ataque desconhecido: $ATTACK"
         kill "$GW_PID" "$PERF_PID" 2>/dev/null || true
@@ -157,7 +162,7 @@ kill -INT "$GW_PID" 2>/dev/null || true
 wait "$GW_PID"     2>/dev/null || true
 
 perf_csv_append_raw "$PERF_RAW" "$PERF_DATA_CSV" \
-    cen2 gateway "$ATTACK" "$RUN_INDEX"
+    cen2 "$COMPONENT" "$ATTACK" "$RUN_INDEX"
 echo "[ok] experiment concluído (rep=$RUN_INDEX → $PERF_DATA_CSV)."
 echo
 echo "======= gateway (resumo) ======="
