@@ -18,6 +18,9 @@ master-experiment/lib/__pycache__
 /icsim
 /controls
 scenario2-firewall/gateway
+scenario2-firewall/diff_test
+scenario2-firewall/gateway-*
+allowlist-scaling/microbench
 scenario3-secoc/secoc_sender
 scenario3-secoc/secoc_gateway
 scenario3-secoc/test_cmac

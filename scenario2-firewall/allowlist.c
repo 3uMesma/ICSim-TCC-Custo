@@ -6,7 +6,7 @@
  */
 
 #include "allowlist.h"
-#include "can_ids.h"
+#include "../lib/can_ids.h"
 
 #include <stddef.h>
 #include <stdio.h>

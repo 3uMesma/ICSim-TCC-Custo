@@ -129,18 +129,20 @@ def fig_latency_box(per_run: pd.DataFrame, summary: pd.DataFrame,
     plt.close(fig)
     print("  ✓ fig_latency_box.{png,pdf}")
 
-# Figura 2: CDF da latência por cenário
+# Figura 2: CDFs de latência — um arquivo por regime de carga (para usar como subfiguras 4a/4b)
 def fig_latency_cdf(per_run: pd.DataFrame, summary: pd.DataFrame,
                     out_dir: Path) -> None:
     if per_run.empty:
         return
     _ = summary
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6), sharey=True)
-    titles = ["Carga alta — DoS", "Carga baixa — fuzzing/spoofing/replay"]
-    groups = [["dos-py", "dos-cangen"],
-              ["fuzzing", "spoofing", "replay"]]
 
-    for ax, title, atks in zip(axes, titles, groups):
+    panels = [
+        ("High-load DoS",                 ["dos-py", "dos-cangen"],          "cdf_highload"),
+        ("Low-load fuzzing/spoofing/replay", ["fuzzing", "spoofing", "replay"], "cdf_lowload"),
+    ]
+
+    for _title, atks, fname in panels:
+        fig, ax = plt.subplots(figsize=(5.0, 3.9))
         for sc, st in PLOT_STAGES:
             sub = per_run[(per_run.scenario == sc) &
                           (per_run.stage == st) &
@@ -153,20 +155,19 @@ def fig_latency_cdf(per_run: pd.DataFrame, summary: pd.DataFrame,
                 continue
             cdf = np.arange(1, len(v) + 1) / len(v)
             ax.plot(v, cdf, color=color_for(sc, st),
-                    lw=1.7, alpha=0.85,
+                    lw=2.0, alpha=0.9,
                     label=STAGE_LABELS.get(st, f"{sc}/{st}"))
         ax.set_xscale("log")
-        ax.set_xlabel("Latência (µs, escala log)")
-        ax.set_title(title) # Mantido apenas como rótulo de eixo/subplot
+        ax.set_xlabel("Latency (µs, log scale)", fontsize=13)
+        ax.set_ylabel("CDF", fontsize=13)
         ax.set_ylim(0, 1.02)
-        ax.legend(loc="lower right", fontsize=8)
-    axes[0].set_ylabel("CDF — fração de frames ≤ x")
-    
-    plt.tight_layout()
-    fig.savefig(out_dir / "fig_latency_cdf.png")
-    fig.savefig(out_dir / "fig_latency_cdf.pdf")
-    plt.close(fig)
-    print("  ✓ fig_latency_cdf.{png,pdf}")
+        ax.tick_params(labelsize=11)
+        ax.legend(loc="lower right", fontsize=11)
+        plt.tight_layout()
+        fig.savefig(out_dir / f"fig_{fname}.png", dpi=300, bbox_inches="tight")
+        fig.savefig(out_dir / f"fig_{fname}.pdf", bbox_inches="tight")
+        plt.close(fig)
+        print(f"  ✓ fig_{fname}.{{png,pdf}}")
 
 # Figura 3: p99 com IC bootstrap simples
 def fig_latency_p99(summary: pd.DataFrame, out_dir: Path) -> None:

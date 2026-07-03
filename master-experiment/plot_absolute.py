@@ -101,7 +101,7 @@ def fig_cycles_per_frame(norm: pd.DataFrame, out_dir: Path) -> None:
     attacks = [a for a in ATTACK_ORDER if a not in NORMALIZE_EXCLUDE]
     sc_order = ["cen2/gateway", "cen3/gateway"]
     fig, ax = plt.subplots(figsize=(8.5, 4.6))
-    grouped_bar(ax, df, ylabel="Ciclos por frame recebido (cycles/frame)",
+    grouped_bar(ax, df, ylabel="",
                 attack_order=attacks, sc_order=sc_order, log=False)
 
     for i, atk in enumerate(attacks):
@@ -116,7 +116,7 @@ def fig_cycles_per_frame(norm: pd.DataFrame, out_dir: Path) -> None:
                 ha="center", va="bottom", fontsize=9,
                 color="#444444", fontweight="bold")
 
-    footnote = "Razão cen3/cen2 acima de cada par."
+    footnote = "Ratio of cen3 to cen2 above each pair."
     if NORMALIZE_EXCLUDE:
         excl = ", ".join(sorted(NORMALIZE_EXCLUDE))
         footnote += f" Omitidos por caveat de janela: {excl}."
