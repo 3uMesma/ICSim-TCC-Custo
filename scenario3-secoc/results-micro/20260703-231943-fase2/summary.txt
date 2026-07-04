@@ -1,0 +1,17 @@
+
+[micro] cpu=3 reps=2000 warmup=5000 gwarm=1000000 seed=42 sink=139
+[micro] overhead rdtsc: mediana=36 min=30
+[micro] resumo por ponto (mediana e IQR — robusto a outliers de escalonamento):
+  op       plain  blk      n      min       Q1  mediana       Q3     IQR
+  protect      4    1   2000     2004     2040     2054     2068      28
+  protect      8    1   2000     1986     2028     2040     2054      26
+  protect     20    2   2000     2904     2950     2970     2994      44
+  protect     36    3   2000     3846     3908     3934     3960      52
+  protect     52    4   2000     4802     4890     4916     4940      50
+  verify       4    1   2000     2014     2056     2070     2086      30
+  verify       8    1   2000     2010     2048     2058     2072      24
+  verify      20    2   2000     2918     2982     2998     3018      36
+  verify      36    3   2000     3864     3926     3950     3982      56
+  verify      52    4   2000     4830     4908     4934     4960      52
+[micro] protect (indicativo): c0=1083 cyc  c1=954 cyc/bloco  R2=0.9998
+[micro] verify  (indicativo): c0=1103 cyc  c1=954 cyc/bloco  R2=0.9999

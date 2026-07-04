@@ -5,7 +5,7 @@
  * frame recebido em vcan0 para vcan1 SEM aplicar nenhuma política de
  * segurança. Existe exclusivamente para que a comparação entre cenários seja justa.
  *
- * Compila em dois modos (Trilha B / D0):
+ * Compila em dois modos:
  *   - clássico (default): struct can_frame, socket CAN 2.0.
  *   - CAN FD (-DFD_MODE): struct canfd_frame + CAN_RAW_FD_FRAMES.
  * O par {passthrough, passthrough-fd} isola o delta de I/O clássico↔FD

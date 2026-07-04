@@ -14,9 +14,8 @@
 
 #include <stddef.h>
 
-/* Payload do SPEED varrido no experimento FD (Trilha B). Default = 5
- * (valor natural do ICSim); sobrescrito por ponto do sweep com
- * -DSWEEP_PLAIN_LEN=<len>, análogo ao -DALLOWLIST_N da Trilha A. */
+/* Payload do SPEED varrido no experimento FD. Default = 5 (valor natural do 
+* ICSim); sobrescrito por ponto do sweep com -DSWEEP_PLAIN_LEN=<len> */
 #ifndef SWEEP_PLAIN_LEN
 #define SWEEP_PLAIN_LEN 5
 #endif

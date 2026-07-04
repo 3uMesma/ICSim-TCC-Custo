@@ -43,9 +43,9 @@ gateway-direct-256: $(SRC) $(SWEEP)
 
 variants: gateway-linear-27 gateway-linear-256 gateway-direct-27 gateway-direct-256
 
-# --- Variante CAN FD (D0/Trilha B): mesmo fonte, -DFD_MODE ----------------
+# --- Variante CAN FD: mesmo fonte, -DFD_MODE ----------------
 # N=3 = as 3 associações do ICSim, para casar com o cen3 (secoc_assocs).
-# Lookup linear (default); a estratégia de busca é assunto da Trilha A.
+# Lookup linear (default)
 gateway-fd: $(SRC) $(SWEEP)
 	$(CC) $(CFLAGS) -DFD_MODE -DALLOWLIST_N=3 $(SRC) -o $@ $(LDFLAGS)
 

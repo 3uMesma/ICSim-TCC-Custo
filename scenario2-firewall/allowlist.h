@@ -8,7 +8,7 @@
 
 #define ALLOWLIST_MAX_ENTRIES 256
 
-/* Tipo de frame conforme o barramento (D0/Trilha B): CAN FD sob -DFD_MODE,
+/* Tipo de frame conforme o barramento: CAN FD sob -DFD_MODE,
  * CAN 2.0 clássico caso contrário. O campo can_id existe nas duas structs;
  * o comprimento muda de nome (len vs can_dlc) */
 #ifdef FD_MODE

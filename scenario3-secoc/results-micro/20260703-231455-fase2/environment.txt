@@ -1,0 +1,68 @@
+== data ==
+2026-07-03T23:14:55-03:00
+== host/kernel ==
+Linux amanda-manjaro 6.18.36-1-MANJARO #1 SMP PREEMPT_DYNAMIC Fri, 19 Jun 2026 12:31:28 +0000 x86_64 GNU/Linux
+== cpu ==
+Arquitetura:                               x86_64
+Modo(s) operacional da CPU:                32-bit, 64-bit
+Tamanhos de endereço:                      39 bits physical, 48 bits virtual
+Ordem dos bytes:                           Little Endian
+CPU(s):                                    16
+Lista de CPU(s) on-line:                   0-15
+ID de fornecedor:                          GenuineIntel
+Nome do modelo:                            11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz
+Família da CPU:                            6
+Modelo:                                    141
+Thread(s) per núcleo:                      2
+Núcleo(s) por soquete:                     8
+Soquete(s):                                1
+Step:                                      1
+Versão do micro-código:                    0x58
+CPU(s) MHz de escala:                      68%
+CPU MHz máx.:                              2300.0000
+CPU MHz mín.:                              800.0000
+BogoMIPS:                                  4608.00
+Opções:                                    fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq dtes64 monitor ds_cpl vmx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb cat_l2 cdp_l2 ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb intel_pt avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves split_lock_detect user_shstk dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp hwp_pkg_req vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid movdiri movdir64b fsrm avx512_vp2intersect md_clear ibt flush_l1d arch_capabilities
+Virtualização:                             VT-x
+cache de L1d:                              384 KiB (8 instâncias)
+cache de L1i:                              256 KiB (8 instâncias)
+cache de L2:                               10 MiB (8 instâncias)
+cache de L3:                               24 MiB (1 instância)
+Nó(s) de NUMA:                             1
+CPU(s) de nó0 NUMA:                        0-15
+Vulnerabilidade Gather data sampling:      Mitigation; Microcode
+Vulnerabilidade Ghostwrite:                Not affected
+Vulnerabilidade Indirect target selection: Mitigation; Aligned branch/return thunks
+Vulnerabilidade Itlb multihit:             Not affected
+Vulnerabilidade L1tf:                      Not affected
+Vulnerabilidade Mds:                       Not affected
+Vulnerabilidade Meltdown:                  Not affected
+Vulnerabilidade Mmio stale data:           Not affected
+Vulnerabilidade Old microcode:             Not affected
+Vulnerabilidade Reg file data sampling:    Not affected
+Vulnerabilidade Retbleed:                  Not affected
+Vulnerabilidade Spec rstack overflow:      Not affected
+Vulnerabilidade Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerabilidade Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerabilidade Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI SW loop, KVM SW loop
+Vulnerabilidade Srbds:                     Not affected
+Vulnerabilidade Tsa:                       Not affected
+Vulnerabilidade Tsx async abort:           Not affected
+Vulnerabilidade Vmscape:                   Not affected
+== cmdline ==
+BOOT_IMAGE=/@/boot/vmlinuz-6.18-x86_64 root=UUID=d1a27c22-39b9-4788-a812-16bac8906d2d rw rootflags=subvol=@ quiet splash apparmor=1 security=apparmor udev.log_priority=3
+== isolated ==
+
+== governor ==
+performance
+== freq_cur_kHz ==
+1790037
+== turbo ==
+kind=intel_pstate orig=1
+== gcc ==
+gcc (GCC) 16.1.1 20260430
+== params ==
+core=3 reps=2000 warmup=5000 seed=42
+== bin ==
+/home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario3-secoc/micro_secoc
+89d5b72d210b73df7111194e89c985c94576f90a  /home/akasat/Documentos/USP/TCC/ICSim-TCC-Custo/scenario3-secoc/micro_secoc

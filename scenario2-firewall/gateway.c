@@ -15,9 +15,9 @@
  * tentando atingir a ECU interna (ICSim). Um gateway bidirecional fica 
  * como trabalho futuro
  *
- * Barramento (D0/Trilha B): CAN 2.0 clássico por default; CAN FD sob
- * -DFD_MODE (socket com CAN_RAW_FD_FRAMES, struct canfd_frame). O tipo de
- * frame vem de policy_frame_t (allowlist.h).
+ * Barramento: CAN 2.0 clássico por default; CAN FD sob -DFD_MODE (socket com 
+ * CAN_RAW_FD_FRAMES, struct canfd_frame). O tipo de frame vem de policy_frame_t 
+ * (allowlist.h).
  */
 
 #define _GNU_SOURCE
