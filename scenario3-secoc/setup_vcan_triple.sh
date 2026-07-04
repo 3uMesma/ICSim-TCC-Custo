@@ -1,18 +1,11 @@
-# setup_vcan_triple.sh - Sobe os três barramentos virtuais CAN do Cenário 3.
+# setup_vcan_triple.sh - Sobe os três barramentos virtuais do cen3 (CAN FD).
 #
 # Topologia:
-#   vcan_trust  (zona "confiável"     - controls legítimo)
-#   vcan0       (zona "comprometida"  - sender autenticado + ataques)
-#   vcan1       (zona "crítica"       - ICSim)
+#   vcan_trust (zona confiável - controls/cangen legítimo -> secoc_sender)
+#   vcan0      (barramento      - secoc_sender + atacante  -> secoc_gateway)
+#   vcan1      (zona crítica     - secoc_gateway            -> ICSim)
 #
-# Fluxo:
-#   controls  -[vcan_trust]->  secoc_sender  -[vcan0]->  secoc_gateway  -[vcan1]->  icsim
-#                                      ^-- atacantes injetam AQUI (cru, sem MAC) --^
-#
-# A separação vcan_trust / vcan0 materializa, no experimento, a
-# *trusted computing base* do SecOC: o sender só recebe mensagens de um
-# domínio em que se confia por construção.
-# 
+# Todas com MTU 72 para carregar frame CAN FD (payload de até 64 B).
 set -euo pipefail
 
 need_root() {
@@ -31,8 +24,10 @@ up_iface() {
         echo "[info] criando $iface"
         ip link add dev "$iface" type vcan
     fi
+    ip link set "$iface" down 2>/dev/null || true
+    ip link set "$iface" mtu 72          # CAN FD: payload de até 64 B
     ip link set up "$iface"
-    echo "[ok]   $iface está UP"
+    echo "[ok]   $iface está UP (MTU 72, CAN FD)"
 }
 
 need_root
@@ -46,13 +41,6 @@ up_iface vcan1
 
 echo
 echo "========================================================"
-echo " Interfaces prontas. Verificação:"
+echo " Interfaces prontas (MTU 72). Verificação:"
 echo "========================================================"
 ip -br link show type vcan
-echo
-echo "Para o Cenário 3 rode, em quatro terminais separados:"
-echo "  1) ./secoc_sender  -i vcan_trust -o vcan0   # ECU autenticadora"
-echo "  2) ./secoc_gateway -i vcan0      -o vcan1   # gateway verificador"
-echo "  3) ../ICSim-TCC-Custo/icsim   vcan1         # ICSim atrás do gateway"
-echo "  4) ../ICSim-TCC-Custo/controls vcan_trust   # controles legítimos"
-echo

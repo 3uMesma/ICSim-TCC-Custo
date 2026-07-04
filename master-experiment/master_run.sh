@@ -16,6 +16,7 @@ ATTACKS_BASELINE="dos-py dos-cangen fuzzing replay spoofing"
 ATTACKS_GATEWAY="dos-py dos-cangen fuzzing replay spoofing"   # nomes aceitos pelos run_scenarioN.sh
 SCENARIOS="baseline cen2 cen3"                   # cenários a rodar
 USE_ICSIM=1                                      # 1=sim, 0=não
+FD_MODE=0                                         # 1=usa binários CAN FD (--fd)
 REPLAY_RECORD_TIME=30                            # s de captura prévia para replay
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,6 +61,8 @@ Opções:
   -a LISTA       Ataques baseline (default: $ATTACKS_BASELINE)
                  (para cen2/cen3, a lista equivalente é derivada)
   --no-icsim     Não inicia ICSim/controls (modo headless / sem display)
+  --fd           Campanha CAN FD: usa passthrough-fd/gateway-fd (cen3 já é FD).
+                 Recomendado com --no-icsim (ICSim clássico não lê frames FD).
 EOF
     exit 0
 }
@@ -85,6 +88,7 @@ while [[ $# -gt 0 ]]; do
         -s) SCENARIOS="${2//,/ }"; shift 2 ;;
         -a) ATTACKS_BASELINE="${2//,/ }"; shift 2 ;;
         --no-icsim) USE_ICSIM=0; shift ;;
+        --fd) FD_MODE=1; shift ;;
         *) echo "[erro] opção desconhecida: $1" >&2; usage ;;
     esac
 done
@@ -112,12 +116,22 @@ check_prereqs() {
     for s in $SCENARIOS; do
         case "$s" in
             baseline)
-                [[ -x "$CEN1_DIR/passthrough" ]] \
-                    || die "binário ausente: $CEN1_DIR/passthrough (rode 'make -f experiments.mk cen1')"
+                if [[ "$FD_MODE" -eq 1 ]]; then
+                    [[ -x "$CEN1_DIR/passthrough-fd" ]] \
+                        || die "binário ausente: $CEN1_DIR/passthrough-fd (rode 'make' em $CEN1_DIR)"
+                else
+                    [[ -x "$CEN1_DIR/passthrough" ]] \
+                        || die "binário ausente: $CEN1_DIR/passthrough (rode 'make -f experiments.mk cen1')"
+                fi
                 ;;
             cen2)
-                [[ -x "$CEN2_DIR/gateway" ]] \
-                    || die "binário ausente: $CEN2_DIR/gateway (rode 'make' em $CEN2_DIR)"
+                if [[ "$FD_MODE" -eq 1 ]]; then
+                    [[ -x "$CEN2_DIR/gateway-fd" ]] \
+                        || die "binário ausente: $CEN2_DIR/gateway-fd (rode 'make gateway-fd' em $CEN2_DIR)"
+                else
+                    [[ -x "$CEN2_DIR/gateway" ]] \
+                        || die "binário ausente: $CEN2_DIR/gateway (rode 'make' em $CEN2_DIR)"
+                fi
                 ;;
             cen3)
                 [[ -x "$CEN3_DIR/secoc_sender"  ]] \
@@ -173,6 +187,7 @@ collect_sysinfo() {
         echo "Duração por rodada              : ${DURATION}s"
         echo "Cooldown entre rodadas          : ${COOLDOWN}s"
         echo "Cenários                        : $SCENARIOS"
+        echo "Modo CAN FD (--fd)              : $([[ $FD_MODE -eq 1 ]] && echo sim || echo não)"
         echo "Ataques (baseline)              : $ATTACKS_BASELINE"
         echo "Ataques (gateway)               : $ATTACKS_GATEWAY"
         echo "ICSim em background             : $([[ $USE_ICSIM -eq 1 ]] && echo sim || echo não)"
@@ -248,12 +263,10 @@ setup_vcans() {
     modprobe can  2>/dev/null || true
     modprobe vcan
     for iface in vcan0 vcan1 vcan_trust; do
-        if ip link show "$iface" >/dev/null 2>&1; then
-            ip link set up "$iface" 2>/dev/null || true
-        else
-            ip link add dev "$iface" type vcan
-            ip link set up "$iface"
-        fi
+        ip link show "$iface" >/dev/null 2>&1 || ip link add dev "$iface" type vcan
+        ip link set "$iface" down 2>/dev/null || true
+        ip link set "$iface" mtu 72 2>/dev/null || true   # CAN FD-capable (inofensivo p/ clássico)
+        ip link set "$iface" up
     done
     ip -br link show type vcan | tee -a "$MASTER_LOG" >/dev/null
 }
@@ -359,6 +372,9 @@ run_baseline() {
 
             (
                 cd "$CEN1_DIR"
+                if [[ "$FD_MODE" -eq 1 ]]; then
+                    export PT_BIN="$CEN1_DIR/passthrough-fd" PT_COMPONENT="passthrough-fd"
+                fi
                 RUN_INDEX="$run" ./run_passthrough.sh "$attack" "$DURATION"
             ) >>"$MASTER_LOG" 2>&1 || log "  [AVISO] rep $run de $attack falhou — continuando"
 
@@ -403,6 +419,9 @@ run_cenario2() {
 
             (
                 cd "$CEN2_DIR"
+                if [[ "$FD_MODE" -eq 1 ]]; then
+                    export GATEWAY_BIN="$CEN2_DIR/gateway-fd" COMPONENT="gateway-fd"
+                fi
                 RUN_INDEX="$run" ./run_scenario2.sh "$attack" "$DURATION"
             ) >>"$MASTER_LOG" 2>&1 || log "  [AVISO] rep $run de $attack falhou — continuando"
 
@@ -535,6 +554,9 @@ main() {
     mkdir -p "$RESULTS_ROOT"
     : > "$MASTER_LOG"
     check_prereqs
+    if [[ "$FD_MODE" -eq 1 && "$USE_ICSIM" -eq 1 ]]; then
+        log "[AVISO] --fd com ICSim ativo: o ICSim clássico não lê frames FD de vcan1. Considere --no-icsim."
+    fi
     setup_vcans
     collect_sysinfo
 
