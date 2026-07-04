@@ -8,13 +8,24 @@
 
 #define ALLOWLIST_MAX_ENTRIES 256
 
+/* Tipo de frame conforme o barramento (D0/Trilha B): CAN FD sob -DFD_MODE,
+ * CAN 2.0 clássico caso contrário. O campo can_id existe nas duas structs;
+ * o comprimento muda de nome (len vs can_dlc) */
+#ifdef FD_MODE
+typedef struct canfd_frame policy_frame_t;
+#  define POLICY_FRAME_LEN(cf) ((cf)->len)
+#else
+typedef struct can_frame policy_frame_t;
+#  define POLICY_FRAME_LEN(cf) ((cf)->can_dlc)
+#endif
+
 /* Motivos de bloqueio */
 typedef enum {
     POLICY_PASS = 0,        /* liberado */
     POLICY_REJECT_ID = 1,   /* ID fora da allowlist */
     POLICY_REJECT_DLC = 2,  /* DLC diferente do esperado para este ID */
     POLICY_REJECT_RATE = 3, /* taxa acima do limite do rate-limiter */
-    POLICY_REJECT_FD = 4,   /* CAN FD desabilitado pela política */
+    POLICY_REJECT_FD = 4,   /* frame com tamanho fora do perfil do barramento */
 } policy_verdict_t;
 
 /* Entrada da política para um ID permitido. */
@@ -33,7 +44,7 @@ extern size_t g_allowlist_size;  /* populável em tamanho N para o sweep */
 
 extern uint64_t g_drops_by_reason[5];
 
-policy_verdict_t policy_evaluate(const struct can_frame *cf, uint64_t now_us);
+policy_verdict_t policy_evaluate(const policy_frame_t *cf, uint64_t now_us);
 
 /* Popula g_allowlist[0..n) a partir de um array de IDs (g_micro_ids/g_macro_ids
    do allowlist_sweep.h). Chamar policy_lookup_init() logo depois. */

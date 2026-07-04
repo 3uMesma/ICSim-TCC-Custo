@@ -14,6 +14,10 @@
  * O encaminhamento é unidirecional, pois o atacante está do lado externo
  * tentando atingir a ECU interna (ICSim). Um gateway bidirecional fica 
  * como trabalho futuro
+ *
+ * Barramento (D0/Trilha B): CAN 2.0 clássico por default; CAN FD sob
+ * -DFD_MODE (socket com CAN_RAW_FD_FRAMES, struct canfd_frame). O tipo de
+ * frame vem de policy_frame_t (allowlist.h).
  */
 
 #define _GNU_SOURCE
@@ -62,6 +66,17 @@ static int open_can_socket(const char *iface) {
         perror("socket(PF_CAN)");
         return -1;
     }
+
+#ifdef FD_MODE
+    int enable_fd = 1;
+    if (setsockopt(sock, SOL_CAN_RAW, CAN_RAW_FD_FRAMES,
+                   &enable_fd, sizeof(enable_fd)) < 0) {
+        fprintf(stderr, "setsockopt(CAN_RAW_FD_FRAMES,%s): %s\n",
+                iface, strerror(errno));
+        close(sock);
+        return -1;
+    }
+#endif
 
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
@@ -199,7 +214,7 @@ int main(int argc, char **argv) {
             g_allowlist_size, (int)getpid());
 
     struct pollfd pfd = {.fd = sock_in, .events = POLLIN};
-    struct can_frame cf;
+    policy_frame_t cf;
     uint64_t t_start_us = now_monotonic_us();
 
     while (!g_stop) {
@@ -220,12 +235,21 @@ int main(int argc, char **argv) {
             perror("read");
             break;
         }
+#ifdef FD_MODE
+        /* Aceita tanto frame clássico (CAN_MTU) quanto FD (CANFD_MTU): o
+         * frame malicioso clássico ainda é contado e morre na Camada 1. */
+        if (n != (ssize_t)CAN_MTU && n != (ssize_t)CANFD_MTU) {
+            g_drops_by_reason[POLICY_REJECT_FD]++;
+            continue;
+        }
+#else
         if (n != (ssize_t)sizeof(cf)) {
             /* descartamos CAN FD , o gateway declara
              * apenas CAN 2.0 clássico no seu modelo de ameaça. */
             g_drops_by_reason[POLICY_REJECT_FD]++;
             continue;
         }
+#endif
 
         g_rx_total++;
 
@@ -244,8 +268,8 @@ int main(int argc, char **argv) {
         }
 
         if (g_verbose) {
-            fprintf(stderr, "[gw] id=0x%03X dlc=%u -> %s\n",
-                    cf.can_id & CAN_SFF_MASK, cf.can_dlc,
+            fprintf(stderr, "[gw] id=0x%03X len=%u -> %s\n",
+                    cf.can_id & CAN_SFF_MASK, POLICY_FRAME_LEN(&cf),
                     policy_verdict_name(v));
         }
     }

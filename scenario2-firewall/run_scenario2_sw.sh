@@ -52,7 +52,8 @@ echo "[info] ataque=$ATTACK duração=${DURATION}s (system-wide)"
 
 # Subir gateway em background — IDÊNTICO ao run_scenario2.sh
 GW_LOG="$RESULTS/gateway.log"
-"$HERE/gateway" -i vcan0 -o vcan1 "${EXTRA_GATEWAY_FLAGS[@]}" >"$GW_LOG" 2>&1 &
+GATEWAY_BIN="${GATEWAY_BIN:-$HERE/gateway}"
+"$GATEWAY_BIN" -i vcan0 -o vcan1 "${EXTRA_GATEWAY_FLAGS[@]}" >"$GW_LOG" 2>&1 &
 GW_PID=$!
 sleep 0.3
 

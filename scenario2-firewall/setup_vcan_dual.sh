@@ -22,8 +22,10 @@ up_iface() {
         echo "[info] criando $iface"
         ip link add dev "$iface" type vcan
     fi
+    ip link set "$iface" down 2>/dev/null || true
+    ip link set "$iface" mtu 72          # CAN FD: payload de até 64 B
     ip link set up "$iface"
-    echo "[ok]   $iface está UP"
+    echo "[ok]   $iface está UP (MTU 72, CAN FD)"
 }
 
 need_root

@@ -136,7 +136,7 @@ const char *policy_verdict_name(policy_verdict_t v)
     }
 }
 
-policy_verdict_t policy_evaluate(const struct can_frame *cf, uint64_t now_us)
+policy_verdict_t policy_evaluate(const policy_frame_t *cf, uint64_t now_us)
 {
     /* Camada 1 — Allowlist de IDs. */
     policy_rule_t *rule = policy_find_rule(cf->can_id);
@@ -146,7 +146,7 @@ policy_verdict_t policy_evaluate(const struct can_frame *cf, uint64_t now_us)
     }
 
     /* Camada 2 — DLC esperado. */
-    if (g_enforce_dlc && cf->can_dlc != rule->expected_dlc) {
+    if (g_enforce_dlc && POLICY_FRAME_LEN(cf) != rule->expected_dlc) {
         rule->drop_count++;
         g_drops_by_reason[POLICY_REJECT_DLC]++;
         return POLICY_REJECT_DLC;
