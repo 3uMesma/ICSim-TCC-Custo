@@ -121,6 +121,12 @@ case "$ATTACK" in
             --value 220 --duration "$DURATION" --rate 1 \
             >"$RESULTS/attack.log" 2>&1
         ;;
+    spoof-wf)
+        "$ATAQUES/spoof_wellformed" --iface vcan0 \
+            --id "${SPOOF_ID:-0x244}" --plain-len "${SPOOF_PLAIN_LEN:-4}" \
+            --overhead 12 --fv "${SPOOF_FV:-0}" --duration "$DURATION" \
+            >"$RESULTS/attack.log" 2>&1
+        ;;
     dos-cangen)
         cangen vcan0 -I 000 -L 8 -D FFFFFFFFFFFFFFFF -g 0 &
         CANGEN_PID=$!
