@@ -1,4 +1,5 @@
 *.o
+/figuras
 /results-attacks
 *.log
 scripts-attacks/scripts-results/results
