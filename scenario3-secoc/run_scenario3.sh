@@ -61,23 +61,25 @@ cleanup_and_die() {
 SENDER_LOG="$RESULTS/sender.log"
 GW_LOG="$RESULTS/gateway.log"
 
-"$HERE/secoc_sender" -i vcan_trust -o vcan0 >"$SENDER_LOG" 2>&1 &
-SENDER_PID=$!
-sleep 0.2
+if [[ "$ATTACK" != "spoof-wf" ]]; then
+    "$HERE/secoc_sender" -i vcan_trust -o vcan0 >"$SENDER_LOG" 2>&1 &
+    SENDER_PID=$!
+    sleep 0.2
+fi
 
 "$HERE/secoc_gateway" -i vcan0 -o vcan1 "${EXTRA_GATEWAY_FLAGS[@]}" >"$GW_LOG" 2>&1 &
 GW_PID=$!
 sleep 0.3
 
-if ! kill -0 "$SENDER_PID" 2>/dev/null; then
+if [[ -n "${SENDER_PID:-}" ]] && ! kill -0 "$SENDER_PID" 2>/dev/null; then
     echo "[erro] sender morreu na inicialização. Verifique $SENDER_LOG"
     cat "$SENDER_LOG"; exit 3
 fi
 if ! kill -0 "$GW_PID" 2>/dev/null; then
     echo "[erro] gateway morreu na inicialização. Verifique $GW_LOG"
-    cat "$GW_LOG"; kill "$SENDER_PID" 2>/dev/null || true; exit 3
+    cat "$GW_LOG"; kill "${SENDER_PID:-}" 2>/dev/null || true; exit 3
 fi
-echo "[info] sender PID=$SENDER_PID  gateway PID=$GW_PID"
+echo "[info] sender PID=${SENDER_PID:-(nao usado)}  gateway PID=$GW_PID"
 
 # perf stat anexado ao gateway (alvo principal da medição)
 PERF_EVENTS="${PERF_EVENTS:-$PERF_EVENTS_DEFAULT}"
@@ -90,16 +92,18 @@ LC_NUMERIC=C perf stat -p "$GW_PID" \
 PERF_PID=$!
 
 # perf também do sender, para decompor o custo total do "SecOC" em autenticação vs verificação
-PERF_SENDER_RAW="$RESULTS/perf_sender.raw"
-LC_NUMERIC=C perf stat -p "$SENDER_PID" \
-    -e "$PERF_EVENTS" \
-    -x ';' -o "$PERF_SENDER_RAW" \
-    -- sleep "$DURATION" &
-PERF_SENDER_PID=$!
+if [[ -n "${SENDER_PID:-}" ]]; then
+    PERF_SENDER_RAW="$RESULTS/perf_sender.raw"
+    LC_NUMERIC=C perf stat -p "$SENDER_PID" \
+        -e "$PERF_EVENTS" \
+        -x ';' -o "$PERF_SENDER_RAW" \
+        -- sleep "$DURATION" &
+    PERF_SENDER_PID=$!
+fi
 
-# esperar perf abrir counters em ambos antes do ataque.
+# esperar perf abrir counters antes do ataque.
 wait_perf_attached "$PERF_PID" || true
-wait_perf_attached "$PERF_SENDER_PID" || true
+[[ -n "${PERF_SENDER_PID:-}" ]] && wait_perf_attached "$PERF_SENDER_PID" || true
 
 # Disparar ataque
 case "$ATTACK" in
@@ -180,6 +184,13 @@ case "$ATTACK" in
         wait "$CANGEN_PID" 2>/dev/null || true
         ;;
 
+    spoof-wf)
+        "${SPOOF_BIN:-$ATAQUES/spoof_wellformed_classic}" --iface vcan0 \
+            --id "${SPOOF_ID:-0x244}" --plain-len "${SPOOF_PLAIN_LEN:-5}" \
+            --overhead "${SPOOF_OVERHEAD:-3}" --fv "${SPOOF_FV:-0}" --duration "$DURATION" \
+            >"$RESULTS/attack.log" 2>&1
+        ;;
+
     *)
         cleanup_and_die "ataque desconhecido: $ATTACK" 4
         ;;
@@ -187,21 +198,35 @@ esac
 
 # Encerrar perf, gateway e sender em ordem
 wait "$PERF_PID"         2>/dev/null || true
-wait "$PERF_SENDER_PID"  2>/dev/null || true
+[[ -n "${PERF_SENDER_PID:-}" ]] && wait "$PERF_SENDER_PID" 2>/dev/null || true
 kill -INT "$GW_PID"      2>/dev/null || true
-kill -INT "$SENDER_PID"  2>/dev/null || true
+[[ -n "${SENDER_PID:-}" ]] && kill -INT "$SENDER_PID" 2>/dev/null || true
 wait "$GW_PID"           2>/dev/null || true
-wait "$SENDER_PID"       2>/dev/null || true
+[[ -n "${SENDER_PID:-}" ]] && wait "$SENDER_PID" 2>/dev/null || true
 
 perf_csv_append_raw "$PERF_GW_RAW"     "$PERF_DATA_CSV" \
     cen3 gateway "$ATTACK" "$RUN_INDEX"
-perf_csv_append_raw "$PERF_SENDER_RAW" "$PERF_DATA_CSV" \
+[[ -n "${PERF_SENDER_PID:-}" ]] && perf_csv_append_raw "$PERF_SENDER_RAW" "$PERF_DATA_CSV" \
     cen3 sender  "$ATTACK" "$RUN_INDEX"
+
+# Contadores SecOC do gateway -> MESMO CSV (denominador da normalização).
+gw_num() { grep -m1 -F "$1" "$GW_LOG" 2>/dev/null | grep -oE '[0-9]+' | tail -1; }
+emit()   { [[ -n "$2" ]] && printf 'cen3;%s;%s;%s;%s;%s;\n' \
+             "${COMPONENT:-gateway}" "$ATTACK" "$RUN_INDEX" "$1" "$2" >> "$PERF_DATA_CSV"; }
+rx="$(gw_num 'Frames recebidos em')"
+ok="$(gw_num 'Verdicts SECOC_OK')"
+bmac="$(gw_num 'Rejeições por MAC')"
+emit rx_total "$rx"
+emit ok       "$ok"
+emit blocked_mac "$bmac"
+[[ -n "$ok" && -n "$bmac" ]] && emit reached_mac "$(( ok + bmac ))"
 
 echo "[ok] experimento concluído (rep=$RUN_INDEX → $PERF_DATA_CSV)."
 echo
 echo "======= gateway (resumo) ======="
 tail -n 30 "$GW_LOG"
-echo
-echo "======= sender (resumo) ======="
-tail -n 15 "$SENDER_LOG"
+if [[ -n "${SENDER_PID:-}" && -f "$SENDER_LOG" ]]; then
+    echo
+    echo "======= sender (resumo) ======="
+    tail -n 15 "$SENDER_LOG"
+fi
